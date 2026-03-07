@@ -1,0 +1,39 @@
+name: Copilot Review Gate
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  copilot-reviewed:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Copilot review on current HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          MAX_ATTEMPTS=30
+          INTERVAL=30
+
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            REVIEWS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews?per_page=100 \
+              --jq "[.[] | select(.user.login == \"copilot-pull-request-reviewer[bot]\" and .commit_id == \"$HEAD_SHA\")] | length")
+
+            if [ "$REVIEWS" -gt 0 ]; then
+              echo "Copilot has reviewed this PR at commit $HEAD_SHA"
+              exit 0
+            fi
+
+            echo "Attempt $i/$MAX_ATTEMPTS: No Copilot review yet for $HEAD_SHA. Waiting ${INTERVAL}s..."
+            sleep $INTERVAL
+          done
+
+          echo "Timed out waiting for Copilot review on $HEAD_SHA"
+          exit 1

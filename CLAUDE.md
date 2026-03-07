@@ -46,6 +46,7 @@ make release-snapshot   # local goreleaser build (no publish)
 - Create a feature branch, make changes, push, and open a PR
 - CI must pass before merging
 - Merge via GitHub PR (squash, merge, or rebase — all allowed)
+- When pushing new commits to an existing PR, re-request a Copilot review
 - Delete the feature branch after merging
 
 ## Releases
