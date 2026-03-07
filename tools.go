@@ -50,7 +50,7 @@ func registerTools(srv *server.MCPServer, db *DB, workspace string) {
 
 	srv.AddTool(
 		mcp.NewTool("task_update",
-			mcp.WithDescription("Update an existing task. Only specified fields are changed. Use progress_note to append timestamped notes about work done."),
+			mcp.WithDescription("Update an existing task. Only specified fields are changed. Use progress_note to append timestamped notes about work done. IMPORTANT: Always set status to 'done' when a task is complete."),
 			mcp.WithString("id", mcp.Description("Task ID"), mcp.Required()),
 			mcp.WithString("title", mcp.Description("New title")),
 			mcp.WithString("description", mcp.Description("New description")),
@@ -220,7 +220,19 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 		if err != nil {
 			return errResult(fmt.Sprintf("update task: %s", err)), nil
 		}
-		return jsonResult(task)
+
+		result, err := jsonResult(task)
+		if err != nil {
+			return nil, err
+		}
+
+		if newStatus == string(StatusInProgress) {
+			result.Content = append(result.Content, mcp.NewTextContent(
+				"Reminder: set this task to 'done' with a progress_note when complete.",
+			))
+		}
+
+		return result, nil
 	}
 }
 

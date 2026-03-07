@@ -82,27 +82,50 @@ func runPending() {
 		return
 	}
 
-	fmt.Println("## Pending Tasks")
-	fmt.Println()
+	// Separate in-progress tasks for prominent display.
+	var inProgress, other []Task
 	for _, t := range tasks {
-		priority := ""
-		if t.Priority == PriorityHigh || t.Priority == PriorityCritical {
-			priority = fmt.Sprintf(" [%s]", strings.ToUpper(string(t.Priority)))
+		if t.Status == StatusInProgress {
+			inProgress = append(inProgress, t)
+		} else {
+			other = append(other, t)
 		}
-		tags := ""
-		if len(t.Tags) > 0 {
-			tags = fmt.Sprintf(" (%s)", strings.Join(t.Tags, ", "))
+	}
+
+	if len(inProgress) > 0 {
+		fmt.Println("## In-Progress Tasks (update or complete these first)")
+		fmt.Println()
+		for _, t := range inProgress {
+			printTask(t)
 		}
-		assignee := ""
-		if t.Assignee != "" {
-			assignee = fmt.Sprintf(" @%s", t.Assignee)
+		fmt.Println()
+	}
+
+	if len(other) > 0 {
+		fmt.Println("## Pending Tasks")
+		fmt.Println()
+		for _, t := range other {
+			printTask(t)
 		}
-		fmt.Printf("- [%s] %s%s%s%s (id: %s)\n", t.Status, t.Title, priority, tags, assignee, t.ID)
-		if len(t.Subtasks) > 0 {
-			for _, st := range t.Subtasks {
-				fmt.Printf("  - [%s] %s (id: %s)\n", st.Status, st.Title, st.ID)
-			}
-		}
+	}
+}
+
+func printTask(t Task) {
+	priority := ""
+	if t.Priority == PriorityHigh || t.Priority == PriorityCritical {
+		priority = fmt.Sprintf(" [%s]", strings.ToUpper(string(t.Priority)))
+	}
+	tags := ""
+	if len(t.Tags) > 0 {
+		tags = fmt.Sprintf(" (%s)", strings.Join(t.Tags, ", "))
+	}
+	assignee := ""
+	if t.Assignee != "" {
+		assignee = fmt.Sprintf(" @%s", t.Assignee)
+	}
+	fmt.Printf("- [%s] %s%s%s%s (id: %s)\n", t.Status, t.Title, priority, tags, assignee, t.ID)
+	for _, st := range t.Subtasks {
+		fmt.Printf("  - [%s] %s (id: %s)\n", st.Status, st.Title, st.ID)
 	}
 }
 
