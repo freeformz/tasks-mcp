@@ -22,9 +22,14 @@ func OpenDB(path string) (*DB, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 
 	d := &DB{db: db}
@@ -48,6 +53,7 @@ func (d *DB) migrate() error {
 			description TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'todo',
 			priority TEXT NOT NULL DEFAULT 'medium',
+			assignee TEXT NOT NULL DEFAULT '',
 			parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
 			progress_notes TEXT NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -69,11 +75,32 @@ func (d *DB) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace);
 		CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks(workspace, status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
+		CREATE INDEX IF NOT EXISTS idx_tasks_workspace_assignee ON tasks(workspace, assignee);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration for existing databases: add assignee column if missing.
+	d.db.Exec(`ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
-func (d *DB) CreateTask(workspace, title, description string, status TaskStatus, priority TaskPriority, parentID string, tags []string, dependsOn []string) (*Task, error) {
+const taskColumns = `id, workspace, title, description, status, priority, assignee, parent_id, progress_notes, created_at, updated_at`
+
+func scanTask(scanner interface{ Scan(...any) error }) (*Task, error) {
+	t := &Task{}
+	var parentID sql.NullString
+	err := scanner.Scan(&t.ID, &t.Workspace, &t.Title, &t.Description, &t.Status, &t.Priority,
+		&t.Assignee, &parentID, &t.ProgressNotes, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.ParentID = parentID.String
+	return t, nil
+}
+
+func (d *DB) CreateTask(workspace, title, description string, status TaskStatus, priority TaskPriority, assignee, parentID string, tags []string, dependsOn []string) (*Task, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
@@ -84,9 +111,9 @@ func (d *DB) CreateTask(workspace, title, description string, status TaskStatus,
 	defer tx.Rollback()
 
 	_, err = tx.Exec(
-		`INSERT INTO tasks (id, workspace, title, description, status, priority, parent_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)`,
-		id, workspace, title, description, string(status), string(priority), parentID, now, now,
+		`INSERT INTO tasks (id, workspace, title, description, status, priority, assignee, parent_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)`,
+		id, workspace, title, description, string(status), string(priority), assignee, parentID, now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
@@ -120,17 +147,12 @@ func (d *DB) CreateTask(workspace, title, description string, status TaskStatus,
 }
 
 func (d *DB) GetTask(workspace, id string) (*Task, error) {
-	task := &Task{}
-	var parentID sql.NullString
-	err := d.db.QueryRow(
-		`SELECT id, workspace, title, description, status, priority, parent_id, progress_notes, created_at, updated_at
-		 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace,
-	).Scan(&task.ID, &task.Workspace, &task.Title, &task.Description, &task.Status, &task.Priority,
-		&parentID, &task.ProgressNotes, &task.CreatedAt, &task.UpdatedAt)
+	task, err := scanTask(d.db.QueryRow(
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ? AND workspace = ?`, id, workspace,
+	))
 	if err != nil {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
-	task.ParentID = parentID.String
 
 	tags, err := d.getTaskTags(id)
 	if err != nil {
@@ -153,31 +175,36 @@ func (d *DB) GetTask(workspace, id string) (*Task, error) {
 	return task, nil
 }
 
-func (d *DB) ListTasks(workspace string, statusFilter string, tagFilter string, parentID string, includeDone bool) ([]Task, error) {
-	query := `SELECT DISTINCT t.id, t.workspace, t.title, t.description, t.status, t.priority, t.parent_id, t.progress_notes, t.created_at, t.updated_at
-		FROM tasks t`
+func (d *DB) ListTasks(workspace string, filter ListFilter) ([]Task, error) {
+	query := `SELECT DISTINCT t.` + strings.ReplaceAll(taskColumns, ", ", ", t.")
+	query += ` FROM tasks t`
 	var args []any
 	var conditions []string
 
 	conditions = append(conditions, "t.workspace = ?")
 	args = append(args, workspace)
 
-	if tagFilter != "" {
+	if filter.Tag != "" {
 		query += ` JOIN task_tags tt ON t.id = tt.task_id`
 		conditions = append(conditions, "tt.tag = ?")
-		args = append(args, tagFilter)
+		args = append(args, filter.Tag)
 	}
 
-	if statusFilter != "" {
+	if filter.Status != "" {
 		conditions = append(conditions, "t.status = ?")
-		args = append(args, statusFilter)
-	} else if !includeDone {
+		args = append(args, filter.Status)
+	} else if !filter.IncludeDone {
 		conditions = append(conditions, "t.status != 'done'")
 	}
 
-	if parentID != "" {
+	if filter.Assignee != "" {
+		conditions = append(conditions, "t.assignee = ?")
+		args = append(args, filter.Assignee)
+	}
+
+	if filter.ParentID != "" {
 		conditions = append(conditions, "t.parent_id = ?")
-		args = append(args, parentID)
+		args = append(args, filter.ParentID)
 	} else {
 		conditions = append(conditions, "t.parent_id IS NULL")
 	}
@@ -193,13 +220,10 @@ func (d *DB) ListTasks(workspace string, statusFilter string, tagFilter string, 
 
 	var tasks []Task
 	for rows.Next() {
-		var t Task
-		var parentID sql.NullString
-		if err := rows.Scan(&t.ID, &t.Workspace, &t.Title, &t.Description, &t.Status, &t.Priority,
-			&parentID, &t.ProgressNotes, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
-		t.ParentID = parentID.String
 
 		tags, err := d.getTaskTags(t.ID)
 		if err != nil {
@@ -213,7 +237,7 @@ func (d *DB) ListTasks(workspace string, statusFilter string, tagFilter string, 
 		}
 		t.DependsOn = deps
 
-		tasks = append(tasks, t)
+		tasks = append(tasks, *t)
 	}
 	return tasks, rows.Err()
 }
@@ -310,8 +334,32 @@ func (d *DB) DeleteTask(workspace, id string) error {
 	return nil
 }
 
+// CheckDependencies returns incomplete (non-done) dependencies for a task.
+func (d *DB) CheckDependencies(workspace, taskID string) ([]Task, error) {
+	rows, err := d.db.Query(`
+		SELECT t.`+taskColumns+`
+		FROM tasks t
+		JOIN task_dependencies td ON t.id = td.depends_on_id
+		WHERE td.task_id = ? AND t.workspace = ? AND t.status != 'done'
+	`, taskID, workspace)
+	if err != nil {
+		return nil, fmt.Errorf("check dependencies: %w", err)
+	}
+	defer rows.Close()
+
+	var incomplete []Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		incomplete = append(incomplete, *t)
+	}
+	return incomplete, rows.Err()
+}
+
 func (d *DB) PendingSummary(workspace string) ([]Task, error) {
-	return d.ListTasks(workspace, "", "", "", false)
+	return d.ListTasks(workspace, ListFilter{})
 }
 
 func (d *DB) HasActiveTasks(workspace string) (bool, error) {
@@ -360,8 +408,7 @@ func (d *DB) getTaskDependencies(taskID string) ([]string, error) {
 
 func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 	rows, err := d.db.Query(
-		`SELECT id, workspace, title, description, status, priority, parent_id, progress_notes, created_at, updated_at
-		 FROM tasks WHERE parent_id = ? AND workspace = ? ORDER BY created_at`, parentID, workspace,
+		`SELECT `+taskColumns+` FROM tasks WHERE parent_id = ? AND workspace = ? ORDER BY created_at`, parentID, workspace,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get subtasks: %w", err)
@@ -370,20 +417,17 @@ func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 
 	var subtasks []Task
 	for rows.Next() {
-		var t Task
-		var pid sql.NullString
-		if err := rows.Scan(&t.ID, &t.Workspace, &t.Title, &t.Description, &t.Status, &t.Priority,
-			&pid, &t.ProgressNotes, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			return nil, err
 		}
-		t.ParentID = pid.String
 
 		tags, err := d.getTaskTags(t.ID)
 		if err != nil {
 			return nil, err
 		}
 		t.Tags = tags
-		subtasks = append(subtasks, t)
+		subtasks = append(subtasks, *t)
 	}
 	return subtasks, rows.Err()
 }

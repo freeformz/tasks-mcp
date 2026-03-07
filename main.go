@@ -88,7 +88,11 @@ func runPending() {
 		if len(t.Tags) > 0 {
 			tags = fmt.Sprintf(" (%s)", strings.Join(t.Tags, ", "))
 		}
-		fmt.Printf("- [%s] %s%s%s (id: %s)\n", t.Status, t.Title, priority, tags, t.ID)
+		assignee := ""
+		if t.Assignee != "" {
+			assignee = fmt.Sprintf(" @%s", t.Assignee)
+		}
+		fmt.Printf("- [%s] %s%s%s%s (id: %s)\n", t.Status, t.Title, priority, tags, assignee, t.ID)
 		if len(t.Subtasks) > 0 {
 			for _, st := range t.Subtasks {
 				fmt.Printf("  - [%s] %s (id: %s)\n", st.Status, st.Title, st.ID)
@@ -119,7 +123,7 @@ func runCheckActive() {
 	}
 
 	if hasActive {
-		tasks, err := db.ListTasks(workspace, string(StatusInProgress), "", "", false)
+		tasks, err := db.ListTasks(workspace, ListFilter{Status: string(StatusInProgress)})
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -144,9 +148,13 @@ func formatActiveTasksReminder(tasks []Task) string {
 }
 
 func flagValue(name string) string {
-	for i, arg := range os.Args {
-		if arg == name && i+1 < len(os.Args) {
-			return os.Args[i+1]
+	return flagValueFrom(os.Args, name)
+}
+
+func flagValueFrom(args []string, name string) string {
+	for i, arg := range args {
+		if arg == name && i+1 < len(args) {
+			return args[i+1]
 		}
 	}
 	return ""

@@ -19,6 +19,7 @@ func registerTools(srv *server.MCPServer, db *DB, workspace string) {
 			mcp.WithString("description", mcp.Description("Detailed description of what needs to be done")),
 			mcp.WithString("status", mcp.Description("Task status: todo, in_progress, done, blocked (default: todo)")),
 			mcp.WithString("priority", mcp.Description("Task priority: low, medium, high, critical (default: medium)")),
+			mcp.WithString("assignee", mcp.Description("Agent or team member name to assign this task to")),
 			mcp.WithString("parent_id", mcp.Description("ID of parent task to create this as a subtask")),
 			mcp.WithString("tags", mcp.Description("Comma-separated tags for categorization")),
 			mcp.WithString("depends_on", mcp.Description("Comma-separated task IDs that must be completed before this task")),
@@ -31,6 +32,7 @@ func registerTools(srv *server.MCPServer, db *DB, workspace string) {
 			mcp.WithDescription("List tasks in the current workspace. Returns top-level tasks by default (not subtasks). Use parent_id to list subtasks of a specific task."),
 			mcp.WithString("status", mcp.Description("Filter by status: todo, in_progress, done, blocked")),
 			mcp.WithString("tag", mcp.Description("Filter by tag")),
+			mcp.WithString("assignee", mcp.Description("Filter by assignee name")),
 			mcp.WithString("parent_id", mcp.Description("List subtasks of this parent task ID")),
 			mcp.WithBoolean("include_done", mcp.Description("Include completed tasks (default: false)")),
 		),
@@ -51,8 +53,9 @@ func registerTools(srv *server.MCPServer, db *DB, workspace string) {
 			mcp.WithString("id", mcp.Description("Task ID"), mcp.Required()),
 			mcp.WithString("title", mcp.Description("New title")),
 			mcp.WithString("description", mcp.Description("New description")),
-			mcp.WithString("status", mcp.Description("New status: todo, in_progress, done, blocked")),
+			mcp.WithString("status", mcp.Description("New status: todo, in_progress, done, blocked. Note: transitioning to in_progress or done will fail if dependencies are not yet done.")),
 			mcp.WithString("priority", mcp.Description("New priority: low, medium, high, critical")),
+			mcp.WithString("assignee", mcp.Description("New assignee name (use empty string to unassign)")),
 			mcp.WithString("progress_note", mcp.Description("Note to append to progress log (timestamped automatically)")),
 			mcp.WithString("add_tags", mcp.Description("Comma-separated tags to add")),
 			mcp.WithString("remove_tags", mcp.Description("Comma-separated tags to remove")),
@@ -79,6 +82,7 @@ func handleTaskCreate(db *DB, workspace string) server.ToolHandlerFunc {
 		}
 
 		description := request.GetString("description", "")
+		assignee := request.GetString("assignee", "")
 
 		status := TaskStatus(request.GetString("status", "todo"))
 		if !status.Valid() {
@@ -94,7 +98,7 @@ func handleTaskCreate(db *DB, workspace string) server.ToolHandlerFunc {
 		tags := splitCSV(request.GetString("tags", ""))
 		deps := splitCSV(request.GetString("depends_on", ""))
 
-		task, err := db.CreateTask(workspace, title, description, status, priority, parentID, tags, deps)
+		task, err := db.CreateTask(workspace, title, description, status, priority, assignee, parentID, tags, deps)
 		if err != nil {
 			return errResult(fmt.Sprintf("create task: %s", err)), nil
 		}
@@ -109,11 +113,15 @@ func handleTaskList(db *DB, workspace string) server.ToolHandlerFunc {
 			return errResult("invalid status filter"), nil
 		}
 
-		tag := request.GetString("tag", "")
-		parentID := request.GetString("parent_id", "")
-		includeDone := request.GetBool("include_done", false)
+		filter := ListFilter{
+			Status:      status,
+			Tag:         request.GetString("tag", ""),
+			ParentID:    request.GetString("parent_id", ""),
+			Assignee:    request.GetString("assignee", ""),
+			IncludeDone: request.GetBool("include_done", false),
+		}
 
-		tasks, err := db.ListTasks(workspace, status, tag, parentID, includeDone)
+		tasks, err := db.ListTasks(workspace, filter)
 		if err != nil {
 			return errResult(fmt.Sprintf("list tasks: %s", err)), nil
 		}
@@ -155,20 +163,40 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 		if desc := request.GetString("description", ""); desc != "" {
 			updates["description"] = desc
 		}
-		if status := request.GetString("status", ""); status != "" {
-			if !TaskStatus(status).Valid() {
+
+		newStatus := request.GetString("status", "")
+		if newStatus != "" {
+			if !TaskStatus(newStatus).Valid() {
 				return errResult("invalid status"), nil
 			}
-			updates["status"] = status
+
+			// Dependency enforcement: block in_progress/done if deps are incomplete.
+			if newStatus == string(StatusInProgress) || newStatus == string(StatusDone) {
+				incomplete, err := db.CheckDependencies(workspace, id)
+				if err != nil {
+					return errResult(fmt.Sprintf("check dependencies: %s", err)), nil
+				}
+				if len(incomplete) > 0 {
+					return errResult(formatDependencyError(newStatus, incomplete)), nil
+				}
+			}
+
+			updates["status"] = newStatus
 		}
+
 		if priority := request.GetString("priority", ""); priority != "" {
 			if !TaskPriority(priority).Valid() {
 				return errResult("invalid priority"), nil
 			}
 			updates["priority"] = priority
 		}
+
+		args := request.GetArguments()
+		if _, ok := args["assignee"]; ok {
+			updates["assignee"] = request.GetString("assignee", "")
+		}
+
 		if note := request.GetString("progress_note", ""); note != "" {
-			// Fetch existing notes to append.
 			existing, err := db.GetTask(workspace, id)
 			if err != nil {
 				return errResult(fmt.Sprintf("get task for note: %s", err)), nil
@@ -207,6 +235,16 @@ func handleTaskDelete(db *DB, workspace string) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText("task deleted"), nil
 	}
+}
+
+func formatDependencyError(targetStatus string, incomplete []Task) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "cannot set status to %s: the following dependencies are not yet done:\n", targetStatus)
+	for _, t := range incomplete {
+		fmt.Fprintf(&b, "- %s [%s] (id: %s)\n", t.Title, t.Status, t.ID)
+	}
+	b.WriteString("Complete or remove these dependencies first.")
+	return b.String()
 }
 
 func splitCSV(s string) []string {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-tasks-mcp is a task management MCP (Model Context Protocol) server designed for AI coding agents. It provides persistent, workspace-scoped task tracking across sessions, enabling agents to plan, track progress, and resume multi-step work reliably.
+tasks-mcp is a task management MCP (Model Context Protocol) server designed for AI coding agents. It provides persistent, workspace-scoped task tracking across sessions, enabling agents to plan, track progress, and resume multi-step work reliably. It supports agent teams through task assignment and dependency enforcement.
 
 ## Problem Statement
 
@@ -12,6 +12,7 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 - There is no record of what was attempted, what succeeded, or what remains
 - Multiple agents working in different projects have no isolation of their task state
 - Agents cannot plan ahead or break work into manageable pieces with ordering constraints
+- Agent teams have no way to coordinate work or avoid duplicating effort
 
 ## Goals
 
@@ -21,6 +22,8 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 4. **Structured decomposition** — Support subtasks and dependencies so agents can break complex work into ordered steps
 5. **Progress logging** — Timestamped notes create an audit trail of what was done and when
 6. **Zero configuration** — Works out of the box with sensible defaults; database is auto-created
+7. **Dependency enforcement** — Prevent agents from starting or completing tasks whose dependencies are not yet done
+8. **Agent team support** — Task assignment enables agent teams to coordinate, claim work, and avoid conflicts
 
 ## Non-Goals
 
@@ -32,6 +35,7 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 ## Target Users
 
 - AI coding agents (Claude Code, similar MCP-compatible agents)
+- Agent teams working collaboratively on the same project
 - Developers who use AI agents for multi-step software engineering tasks
 
 ## Architecture
@@ -44,6 +48,10 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 │  (AI Agent)     │    MCP JSON    │  (Go binary)    │
 └─────────────────┘                └────────┬────────┘
                                             │
+┌─────────────────┐     stdio      ┌────────┤
+│  Agent Team     │◄──────────────►│        │
+│  (Teammate)     │    MCP JSON    │        │
+└─────────────────┘                │        │
                                    ┌────────▼────────┐
                                    │  SQLite (WAL)   │
                                    │  ~/.local/share/ │
@@ -52,12 +60,15 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
                                    └─────────────────┘
 ```
 
+Multiple MCP server instances can share the same database safely via SQLite WAL mode.
+
 ### Components
 
 | Component | Purpose |
 |-----------|---------|
 | MCP Server | Stdio transport, tool registration, request handling |
 | Database Layer | SQLite with WAL mode, schema migration, CRUD operations |
+| Dependency Checker | Validates dependency completion before status transitions |
 | CLI Subcommands | `pending` and `check-active` for hook scripts |
 | Hook Scripts | Shell scripts for SessionStart and Stop integration |
 | Rules File | Markdown instructions guiding agent behavior |
@@ -68,6 +79,7 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 - **Location**: `~/.local/share/tasks-mcp/tasks.db`
 - **Mode**: WAL (Write-Ahead Logging) for concurrent multi-process access
 - **Busy timeout**: 5 seconds
+- **Foreign keys**: Enabled (cascade deletes for subtasks)
 
 ### Workspace Isolation
 
@@ -85,6 +97,7 @@ Tasks are scoped by the absolute path of the project directory. The MCP server d
 | description | string | no | "" | Detailed description of the work |
 | status | enum | no | "todo" | Current state (see below) |
 | priority | enum | no | "medium" | Importance level (see below) |
+| assignee | string | no | "" | Agent or team member name |
 | parent_id | UUID string | no | null | Parent task ID (makes this a subtask) |
 | progress_notes | text | no | "" | Timestamped log of progress entries |
 | created_at | datetime | auto | now | Creation timestamp (UTC) |
@@ -114,11 +127,25 @@ Many-to-many relationship between tasks and string labels. Stored in `task_tags`
 
 ### Dependencies
 
-Many-to-many relationship between tasks. Stored in `task_dependencies` junction table. Represents "task A depends on task B" — meaning B should be completed before A. Dependencies are informational; the server does not enforce ordering.
+Many-to-many relationship between tasks. Stored in `task_dependencies` junction table. Represents "task A depends on task B" — meaning B should be completed before A.
+
+**Enforcement:** The server enforces dependencies when transitioning task status:
+- Setting status to `in_progress` is blocked if any dependency is not `done`
+- Setting status to `done` is blocked if any dependency is not `done`
+- The error response lists which dependencies are incomplete
+- Dependencies can be removed via `remove_dependencies` to unblock if needed
 
 ### Subtasks
 
 Hierarchical parent-child relationship via `parent_id`. Subtasks are returned nested under their parent in `task_get`. Deleting a parent cascades to all subtasks.
+
+### Task Assignment
+
+Tasks can be assigned to agents or team members via the `assignee` field:
+- Free-form string identifier (agent name, team member name, etc.)
+- Tasks can be filtered by assignee in `task_list`
+- Unassigned tasks (empty assignee) are available for any team member
+- Assignee can be changed or cleared via `task_update`
 
 ## MCP Tools
 
@@ -134,6 +161,7 @@ Creates a new task in the current workspace.
 | description | string | no | Detailed description |
 | status | string | no | Initial status (default: "todo") |
 | priority | string | no | Priority level (default: "medium") |
+| assignee | string | no | Agent or team member to assign to |
 | parent_id | string | no | Parent task ID for subtask creation |
 | tags | string | no | Comma-separated tags |
 | depends_on | string | no | Comma-separated task IDs |
@@ -150,6 +178,7 @@ Lists tasks in the current workspace. Returns top-level tasks by default (exclud
 |------|------|----------|-------------|
 | status | string | no | Filter by status |
 | tag | string | no | Filter by tag |
+| assignee | string | no | Filter by assignee name |
 | parent_id | string | no | List subtasks of this parent |
 | include_done | boolean | no | Include completed tasks (default: false) |
 
@@ -169,7 +198,7 @@ Gets full details of a single task including subtasks, tags, and dependencies.
 
 ### task_update
 
-Updates an existing task. Only specified fields are modified.
+Updates an existing task. Only specified fields are modified. Enforces dependency completion for status transitions to `in_progress` or `done`.
 
 **Parameters:**
 
@@ -178,8 +207,9 @@ Updates an existing task. Only specified fields are modified.
 | id | string | yes | Task ID |
 | title | string | no | New title |
 | description | string | no | New description |
-| status | string | no | New status |
+| status | string | no | New status (dependency enforcement applies) |
 | priority | string | no | New priority |
+| assignee | string | no | New assignee (empty string to unassign) |
 | progress_note | string | no | Note appended with timestamp |
 | add_tags | string | no | Comma-separated tags to add |
 | remove_tags | string | no | Comma-separated tags to remove |
@@ -187,6 +217,8 @@ Updates an existing task. Only specified fields are modified.
 | remove_dependencies | string | no | Comma-separated task IDs to remove |
 
 **Returns:** Updated task object.
+
+**Dependency enforcement:** If `status` is set to `in_progress` or `done` and any dependency task is not `done`, the update is rejected with an error listing the incomplete dependencies.
 
 ### task_delete
 
@@ -210,10 +242,10 @@ Fires when a Claude Code session starts or resumes. The hook script:
 
 1. Reads JSON input from stdin to extract `cwd`
 2. Runs `tasks-mcp pending --workspace <cwd>`
-3. Outputs pending tasks as markdown to stdout
+3. Outputs pending tasks as markdown to stdout (including assignee info)
 4. Claude receives this as injected context
 
-**Effect:** The agent immediately knows what tasks are pending without needing to call any tools.
+**Effect:** The agent immediately knows what tasks are pending, who they're assigned to, and what the team is working on.
 
 #### Stop
 
@@ -230,9 +262,11 @@ Fires when Claude is about to stop responding. The hook script:
 A rules file (`.claude/rules/taskqueue.md`) instructs the agent:
 
 - When to create tasks (multi-step work, cross-session projects)
-- How to manage the task lifecycle (create → in_progress → progress notes → done)
+- How to manage the task lifecycle (create -> in_progress -> progress notes -> done)
+- How to use task assignment in agent teams
+- How dependency enforcement works
 - What fields are available and how to use them
-- Best practices (don't create trivial tasks, use tags consistently)
+- Best practices (don't create trivial tasks, use tags consistently, assign tasks in teams)
 
 ### MCP Server Instructions
 
@@ -244,7 +278,7 @@ The binary supports two subcommands used by hook scripts:
 
 | Command | Purpose |
 |---------|---------|
-| `tasks-mcp pending --workspace <path>` | Print markdown summary of non-done tasks |
+| `tasks-mcp pending --workspace <path>` | Print markdown summary of non-done tasks with assignee info |
 | `tasks-mcp check-active --workspace <path>` | Output JSON decision if in-progress tasks exist |
 
 Running with no arguments starts the MCP server (default mode).
@@ -257,15 +291,16 @@ Running with no arguments starts the MCP server (default mode).
 - **Transport**: stdio (stdin/stdout JSON)
 - **Platform**: macOS, Linux (anywhere Go compiles)
 - **Dependencies**: jq required for hook scripts
+- **Test coverage**: Minimum 70% statement coverage
 
 ## Future Considerations
 
-These are explicitly out of scope for v1 but may be considered later:
+These are explicitly out of scope for the current version but may be considered later:
 
 - **Task templates** — Pre-defined task structures for common workflows
-- **Dependency enforcement** — Warn or block when starting a task with incomplete dependencies
 - **Cross-workspace views** — Query tasks across all workspaces
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
-- **Task assignment** — Assign tasks to specific agent sessions
 - **Notifications** — Proactive reminders for blocked or stale tasks
+- **Circular dependency detection** — Prevent creating dependency cycles
+- **Agent presence** — Track which agents are currently active in a workspace

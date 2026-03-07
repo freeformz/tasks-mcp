@@ -1,6 +1,7 @@
 #!/bin/bash
 # SessionStart hook: injects pending tasks as context on session start/resume.
 # Receives JSON on stdin with session info including cwd.
+# Shows all pending tasks for the workspace, including assignee info for team awareness.
 
 set -euo pipefail
 
@@ -15,7 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BINARY="$SCRIPT_DIR/tasks-mcp"
 
 if [ ! -x "$BINARY" ]; then
-    # Try go run as fallback.
     cd "$SCRIPT_DIR"
     output=$(go run . pending --workspace "$cwd" 2>/dev/null || true)
 else

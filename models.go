@@ -43,6 +43,7 @@ type Task struct {
 	Description   string       `json:"description,omitempty"`
 	Status        TaskStatus   `json:"status"`
 	Priority      TaskPriority `json:"priority"`
+	Assignee      string       `json:"assignee,omitempty"`
 	ParentID      string       `json:"parent_id,omitempty"`
 	ProgressNotes string       `json:"progress_notes,omitempty"`
 	CreatedAt     time.Time    `json:"created_at"`
@@ -50,4 +51,12 @@ type Task struct {
 	Tags          []string     `json:"tags,omitempty"`
 	DependsOn     []string     `json:"depends_on,omitempty"`
 	Subtasks      []Task       `json:"subtasks,omitempty"`
+}
+
+type ListFilter struct {
+	Status      string
+	Tag         string
+	ParentID    string
+	Assignee    string
+	IncludeDone bool
 }
