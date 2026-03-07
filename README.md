@@ -43,7 +43,8 @@ Add to your project's `.mcp.json`:
   "mcpServers": {
     "tasks": {
       "type": "stdio",
-      "command": "tasks-mcp"
+      "command": "tasks-mcp",
+      "args": ["mcp"]
     }
   }
 }
@@ -57,7 +58,7 @@ Add to your project's `.mcp.json`:
     "tasks": {
       "type": "stdio",
       "command": "docker",
-      "args": ["run", "--rm", "-i", "-v", "tasks-mcp-data:/data", "ghcr.io/freeformz/tasks-mcp:latest"]
+      "args": ["run", "--rm", "-i", "-v", "tasks-mcp-data:/data", "ghcr.io/freeformz/tasks-mcp:latest", "mcp"]
     }
   }
 }
