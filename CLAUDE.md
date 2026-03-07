@@ -13,6 +13,9 @@ Task management MCP server for AI agents, built in Go.
 - `hooks/` — Claude Code hook scripts (session-start, on-stop)
 - `.claude/rules/taskqueue.md` — Rules instructing Claude how to use the MCP
 - `.claude/settings.json` — Hook configuration
+- `.goreleaser.yml` — GoReleaser config (builds, archives, MCPB bundles)
+- `Makefile` — Build, test, and release tasks
+- `.github/workflows/` — CI (test on push/PR) and Release (on semver tags)
 
 ## Code Conventions
 
@@ -25,10 +28,21 @@ Task management MCP server for AI agents, built in Go.
 ## Build & Test
 
 ```sh
-go build -o tasks-mcp .    # build binary
-go vet ./...                # lint
-go test ./...               # run tests
+make build              # build binary
+make test               # run tests
+make test-coverage      # tests with coverage report
+make vet                # go vet
+make lint               # vet + test
+make release-snapshot   # local goreleaser build (no publish)
 ```
+
+## Releases
+
+- Uses GoReleaser with MCPB bundle support
+- Triggered by pushing a semver tag: `git tag v0.1.0 && git push origin v0.1.0`
+- Tags must follow Go module versioning: `v{MAJOR}.{MINOR}.{PATCH}`
+- CI runs on push to main and PRs; release workflow runs on `v*` tags
+- Version is injected into the binary via ldflags (`main.version`)
 
 ## Architecture
 

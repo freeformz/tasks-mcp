@@ -11,6 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+var version = "dev"
+
 func dbPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -1,2 +1,4 @@
 tasks-mcp
 coverage.out
+dist/
+logs/

@@ -1,0 +1,56 @@
+version: 2
+
+project_name: tasks-mcp
+
+before:
+  hooks:
+    - go vet ./...
+    - go test ./...
+
+builds:
+  - id: tasks-mcp
+    main: .
+    binary: tasks-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+mcps:
+  - ids:
+      - tasks-mcp
+    name: tasks-mcp
+    description: Task management MCP server for AI agents. Tracks multi-step work across sessions with workspace isolation, subtasks, dependencies, and tags.
+    vendor: freeformz
+    url: https://github.com/freeformz/tasks-mcp
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: freeformz
+    name: tasks-mcp
