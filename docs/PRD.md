@@ -27,7 +27,7 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 
 ## Non-Goals
 
-- User-facing task management UI (this is agent-to-agent infrastructure)
+- Full-featured task management application (the CLI is for monitoring and light interaction, not primary task management)
 - Cross-machine synchronization (single-machine SQLite)
 - Real-time collaboration between agents (tasks are eventually consistent via SQLite WAL)
 - Time tracking or scheduling (no due dates, estimates, or calendars)
@@ -37,6 +37,7 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 - AI coding agents (Claude Code, similar MCP-compatible agents)
 - Agent teams working collaboratively on the same project
 - Developers who use AI agents for multi-step software engineering tasks
+- Developers who want to monitor agent progress and manage tasks from the terminal
 
 ## Architecture
 
@@ -70,7 +71,8 @@ Multiple MCP server instances can share the same database safely via SQLite WAL 
 | Database Layer | SQLite with WAL mode, schema migration, CRUD operations |
 | Dependency Checker | Validates dependency completion and circular dependency detection |
 | Presence Tracker | Tracks active agents per workspace with heartbeat-based expiry |
-| CLI Subcommands | `pending` and `check-active` for hook scripts |
+| CLI (Hook Support) | `pending` and `check-active` subcommands for hook scripts |
+| CLI (Interactive) | `list`, `watch`, `close` subcommands for human interaction (bubbletea TUI) |
 | Hook Scripts | Shell scripts for SessionStart and Stop integration |
 | Rules File | Markdown instructions guiding agent behavior |
 
@@ -290,26 +292,110 @@ A rules file (`.claude/rules/taskqueue.md`) instructs the agent:
 
 The MCP server provides inline instructions via the `WithInstructions` option, giving the agent baseline guidance even without the rules file installed.
 
-## CLI Subcommands
+## CLI
 
-The binary supports two subcommands used by hook scripts:
+Running with no arguments starts the MCP server (default mode).
+
+### Hook Subcommands
+
+Used by Claude Code hook scripts. Not intended for direct human use.
 
 | Command | Purpose |
 |---------|---------|
 | `tasks-mcp pending --workspace <path>` | Print markdown summary of non-done tasks with assignee info |
 | `tasks-mcp check-active --workspace <path>` | Output JSON decision if in-progress tasks exist |
 
-Running with no arguments starts the MCP server (default mode).
+### Human-Facing Subcommands
+
+Interactive CLI for developers to monitor agent work and manage tasks. Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [bubbles](https://github.com/charmbracelet/bubbles). Uses [lipgloss](https://github.com/charmbracelet/lipgloss) for styling with status-based coloring (green=done, yellow=in_progress, red=blocked, dim=todo).
+
+**ID display:** Task IDs are full UUIDs (36 chars). In table output, IDs are shown as the last segment (final 12 hex characters after the last `-`) for readability and easy copying. Full IDs are available in interactive mode and `watch` detail views. Commands like `watch` and `close` accept either the short suffix or full UUID, using suffix matching to resolve.
+
+**Code organization:** CLI/TUI code lives in separate files in the root package (`cli_list.go`, `cli_watch.go`, `cli_close.go`). TUI model logic is tested; view rendering is not.
+
+**Progress notes display:** Shown as raw text for now. See Future Considerations for richer formatting.
+
+#### `tasks-mcp list`
+
+Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time.
+
+- Excludes done tasks by default
+- Shows top-level tasks only by default
+- Output is plain text, suitable for piping
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-i` | Interactive TUI mode |
+| `--subtasks` | Show subtasks nested under parent tasks |
+| `--status <status>` | Filter by status |
+| `--assignee <name>` | Filter by assignee |
+| `--include-done` | Include completed tasks |
+| `--workspace <path>` | Override workspace (default: cwd) |
+
+**Interactive mode (`-i`):**
+
+- Opens a full-screen TUI showing all open top-level tasks
+- Navigate with arrow keys / j/k
+- Press Enter to expand a task and see subtasks, progress notes, and details
+- Press `c` to close (mark done) the selected task — prompts for confirmation before closing
+- Press `q` or Esc to quit
+
+#### `tasks-mcp watch <id>`
+
+Live-updating TUI that displays a task and its full subtask tree. Polls the database for changes and re-renders automatically. Exits when all tasks in the tree are done.
+
+- Shows task title, status, priority, assignee for each node
+- Subtasks displayed as an indented tree
+- Status changes are reflected in real-time (via polling)
+- New subtasks added by agents appear automatically
+- Progress notes shown inline or expandable
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--interval <duration>` | Poll interval (default: `5s`) |
+| `--no-exit` | Stay running after all tasks are done (continue watching for changes) |
+| `--workspace <path>` | Override workspace (default: cwd) |
+
+**Behavior:**
+
+- If the task has no subtasks, shows the single task and waits for it to complete (subtasks may be added later by agents)
+- Tree updates as agents add subtasks, change status, or append progress notes
+- Displays a summary when all tasks in the tree reach `done`
+- Press `q` or Ctrl+C to exit early
+
+#### `tasks-mcp close <id>`
+
+Marks a task as done from the command line.
+
+- Sets status to `done`
+- Automatically appends a progress note: "Closed manually via CLI"
+- If `--note` is provided, that note is appended in addition to the automatic one
+- Prints confirmation with task title
+- Fails with error if dependencies are not yet done
+
+**Agent interaction:** If an agent is currently working on a task that is closed via CLI, the task status changes to `done` in the database. The agent will see the updated status (and the "Closed manually via CLI" progress note) on its next read, and should stop working on it. There is no real-time notification to the agent — it discovers the change on its next database access.
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--note <text>` | Add a progress note when closing |
+| `--workspace <path>` | Override workspace (default: cwd) |
 
 ## Technical Requirements
 
 - **Language**: Go 1.26+
 - **Database**: SQLite via modernc.org/sqlite (pure Go)
 - **MCP SDK**: github.com/mark3labs/mcp-go
-- **Transport**: stdio (stdin/stdout JSON)
+- **TUI**: github.com/charmbracelet/bubbletea, github.com/charmbracelet/bubbles, github.com/charmbracelet/lipgloss
+- **Transport**: stdio (stdin/stdout JSON) for MCP; terminal for CLI
 - **Platform**: macOS, Linux (anywhere Go compiles)
 - **Dependencies**: jq required for hook scripts
-- **Test coverage**: Minimum 70% statement coverage
+- **Test coverage**: Minimum 70% statement coverage. CLI/TUI: test model logic and DB interactions, not view rendering
 
 ## Future Considerations
 
@@ -320,3 +406,4 @@ These are explicitly out of scope for the current version but may be considered 
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
+- **Rich progress notes** — Parse timestamped progress notes for styled display (separate timestamps, syntax highlighting, collapsible entries)
