@@ -44,7 +44,7 @@ make release-snapshot   # local goreleaser build (no publish)
 
 - **Never push directly to main** — main is protected by branch rulesets
 - Create a feature branch, make changes, push, and open a PR
-- CI (`test` status check) must pass before merging
+- CI must pass before merging
 - Merge via GitHub PR (squash, merge, or rebase — all allowed)
 - Delete the feature branch after merging
 
