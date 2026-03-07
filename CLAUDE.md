@@ -40,6 +40,14 @@ make lint               # vet + test
 make release-snapshot   # local goreleaser build (no publish)
 ```
 
+## Development Workflow
+
+- **Never push directly to main** — main is protected by branch rulesets
+- Create a feature branch, make changes, push, and open a PR
+- CI (`test` status check) must pass before merging
+- Merge via GitHub PR (squash, merge, or rebase — all allowed)
+- Delete the feature branch after merging
+
 ## Releases
 
 - Uses GoReleaser with MCPB bundle support
