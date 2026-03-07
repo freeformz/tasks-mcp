@@ -68,7 +68,8 @@ Multiple MCP server instances can share the same database safely via SQLite WAL 
 |-----------|---------|
 | MCP Server | Stdio transport, tool registration, request handling |
 | Database Layer | SQLite with WAL mode, schema migration, CRUD operations |
-| Dependency Checker | Validates dependency completion before status transitions |
+| Dependency Checker | Validates dependency completion and circular dependency detection |
+| Presence Tracker | Tracks active agents per workspace with heartbeat-based expiry |
 | CLI Subcommands | `pending` and `check-active` for hook scripts |
 | Hook Scripts | Shell scripts for SessionStart and Stop integration |
 | Rules File | Markdown instructions guiding agent behavior |
@@ -135,6 +136,8 @@ Many-to-many relationship between tasks. Stored in `task_dependencies` junction 
 - Setting status to `done` is blocked if any dependency is not `done`
 - The error response lists which dependencies are incomplete
 - Dependencies can be removed via `remove_dependencies` to unblock if needed
+
+**Circular dependency detection:** When adding a dependency, the server performs a BFS walk of the dependency graph to detect cycles. Self-dependencies and transitive cycles (A→B→C→A) are rejected with a clear error message.
 
 ### Subtasks
 
@@ -233,6 +236,20 @@ Deletes a task and all its subtasks (cascade).
 
 **Returns:** Confirmation message.
 
+### agent_presence
+
+Track agent presence in a workspace. Supports registration, heartbeats, deregistration, and listing active agents. Stale sessions (no heartbeat in 5+ minutes) are automatically cleaned up.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| action | string | yes | Action: `register`, `heartbeat`, `deregister`, `list` |
+| agent_name | string | for register | Agent or team member name |
+| session_id | string | for heartbeat/deregister | Session ID returned by register |
+
+**Returns:** For `register`: session ID. For `list`: array of active agents with name, session ID, and timestamps.
+
 ## Claude Code Integration
 
 ### Hooks
@@ -286,7 +303,7 @@ Running with no arguments starts the MCP server (default mode).
 
 ## Technical Requirements
 
-- **Language**: Go 1.24+
+- **Language**: Go 1.26+
 - **Database**: SQLite via modernc.org/sqlite (pure Go)
 - **MCP SDK**: github.com/mark3labs/mcp-go
 - **Transport**: stdio (stdin/stdout JSON)
@@ -303,5 +320,3 @@ These are explicitly out of scope for the current version but may be considered 
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
-- **Circular dependency detection** — Prevent creating dependency cycles
-- **Agent presence** — Track which agents are currently active in a workspace
