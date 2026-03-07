@@ -23,7 +23,7 @@
 - Validate all inputs at system boundaries (MCP tool handlers, CLI flags)
 
 ### Architecture
-- MCP tool handlers return `(mcp.CallToolResult, error)` — ensure errors include context
+- MCP tool handlers return `(*mcp.CallToolResult, error)` — ensure errors include context
 - CLI commands use Cobra; hook subcommands must set `Hidden`, `SilenceUsage`, `SilenceErrors`
 - Workspace resolution uses `resolveWorkspace()`, dependency checks use `validateDependencies()`
 - Progress notes use `formatProgressNote()` and `appendProgressNote()` helpers
