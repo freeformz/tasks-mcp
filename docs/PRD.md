@@ -43,21 +43,21 @@ AI coding agents operate in sessions that are inherently ephemeral. When working
 ### System Design
 
 ```
-┌─────────────────┐     stdio      ┌─────────────────┐
-│  Claude Code    │◄──────────────►│  tasks-mcp      │
-│  (AI Agent)     │    MCP JSON    │  (Go binary)    │
-└─────────────────┘                └────────┬────────┘
+┌─────────────────┐     stdio      ┌──────────────────┐
+│  Claude Code    │◄──────────────►│  tasks-mcp       │
+│  (AI Agent)     │    MCP JSON    │  (Go binary)     │
+└─────────────────┘                └────────┬─────────┘
                                             │
 ┌─────────────────┐     stdio      ┌────────┤
 │  Agent Team     │◄──────────────►│        │
 │  (Teammate)     │    MCP JSON    │        │
 └─────────────────┘                │        │
-                                   ┌────────▼────────┐
-                                   │  SQLite (WAL)   │
+                                   ┌────────▼─────────┐
+                                   │  SQLite (WAL)    │
                                    │  ~/.local/share/ │
-                                   │  tasks-mcp/     │
-                                   │  tasks.db       │
-                                   └─────────────────┘
+                                   │  tasks-mcp/      │
+                                   │  tasks.db        │
+                                   └──────────────────┘
 ```
 
 Multiple MCP server instances can share the same database safely via SQLite WAL mode.
