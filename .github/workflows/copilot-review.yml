@@ -3,6 +3,8 @@ name: Copilot Review Gate
 on:
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
 
 permissions:
   pull-requests: read
@@ -11,16 +13,18 @@ jobs:
   copilot-reviewed:
     runs-on: ubuntu-latest
     steps:
-      - name: Check for Copilot review
+      - name: Check for Copilot review on current HEAD
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REVIEWS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
-            --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length')
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+
+          REVIEWS=$(gh api --paginate repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
+            --jq "[.[] | select(.user.login == \"copilot-pull-request-reviewer[bot]\" and .commit_id == \"$HEAD_SHA\")] | length")
 
           if [ "$REVIEWS" -gt 0 ]; then
-            echo "Copilot has reviewed this PR"
+            echo "Copilot has reviewed this PR at commit $HEAD_SHA"
           else
-            echo "Waiting for Copilot review"
+            echo "No Copilot review found for current HEAD ($HEAD_SHA)"
             exit 1
           fi
