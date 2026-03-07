@@ -3,7 +3,7 @@
     "tasks": {
       "type": "stdio",
       "command": "go",
-      "args": ["run", "."]
+      "args": ["run", ".", "mcp"]
     },
     "gopls": {
       "type": "stdio",

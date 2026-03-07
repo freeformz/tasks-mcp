@@ -294,7 +294,7 @@ The MCP server provides inline instructions via the `WithInstructions` option, g
 
 ## CLI
 
-Running with no arguments starts the MCP server (default mode). Supports `--help` / `-h` / `help` for usage information and `--version` for version display. Unknown commands print an error with usage to stderr and exit with code 1.
+Running with no arguments displays help. The `mcp` subcommand starts the MCP server. Supports `--help` / `-h` / `help` for usage information and `--version` for version display. Unknown commands print an error with usage to stderr and exit with code 1.
 
 ### Hook Subcommands
 

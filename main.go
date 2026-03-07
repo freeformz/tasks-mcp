@@ -25,44 +25,40 @@ func dbPath() string {
 }
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "pending":
-			runPending()
-			return
-		case "check-active":
-			runCheckActive()
-			return
-		case "list":
-			runList()
-			return
-		case "watch":
-			runWatch()
-			return
-		case "close":
-			runClose()
-			return
-		case "-h", "--help", "help":
-			printUsage()
-			return
-		case "--version", "version":
-			fmt.Println("tasks-mcp", version)
-			return
-		default:
-			fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
-			printUsage()
-			os.Exit(1)
-		}
+	if len(os.Args) < 2 {
+		printUsage()
+		return
 	}
 
-	runServer()
+	switch os.Args[1] {
+	case "mcp":
+		runServer()
+	case "pending":
+		runPending()
+	case "check-active":
+		runCheckActive()
+	case "list":
+		runList()
+	case "watch":
+		runWatch()
+	case "close":
+		runClose()
+	case "-h", "--help", "help":
+		printUsage()
+	case "--version", "version":
+		fmt.Println("tasks-mcp", version)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		printUsage()
+		os.Exit(1)
+	}
 }
 
 func printUsage() {
 	fmt.Printf(`tasks-mcp %s — Task management MCP server for AI agents
 
 Usage:
-  tasks-mcp                          Start MCP server (stdio)
+  tasks-mcp mcp                      Start MCP server (stdio)
   tasks-mcp list [flags]             List tasks in current workspace
   tasks-mcp watch <id> [flags]       Watch a task and its subtask tree
   tasks-mcp close <id> [flags]       Mark a task as done
