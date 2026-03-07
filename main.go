@@ -33,6 +33,15 @@ func main() {
 		case "check-active":
 			runCheckActive()
 			return
+		case "list":
+			runList()
+			return
+		case "watch":
+			runWatch()
+			return
+		case "close":
+			runClose()
+			return
 		}
 	}
 
