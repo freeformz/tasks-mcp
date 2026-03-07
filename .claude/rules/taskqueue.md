@@ -1,0 +1,36 @@
+## Task Management (tasks-mcp)
+
+You have access to a task management MCP server for tracking multi-step work across sessions.
+
+### When to create tasks
+
+- When starting work that involves multiple steps or files
+- When the user describes a feature, bug fix, or project that won't be done in one shot
+- When resuming a session, check existing tasks before creating duplicates
+- Break complex work into subtasks with parent_id for better tracking
+
+### How to use tasks
+
+- **Start of session**: Call `task_list` to see pending work. The SessionStart hook may have already shown pending tasks in context.
+- **Starting work**: Create tasks with `task_create` or update existing ones to `in_progress`
+- **Making progress**: Use `task_update` with `progress_note` to log what was done
+- **Blocked**: Set status to `blocked` with a progress note explaining why
+- **Completing work**: Set status to `done` with a final progress note
+- **Dependencies**: Use `depends_on` when creating tasks that require other tasks to finish first
+
+### Task fields
+
+- **status**: `todo`, `in_progress`, `done`, `blocked`
+- **priority**: `low`, `medium`, `high`, `critical`
+- **tags**: Comma-separated labels for categorization (e.g., "bug,frontend,urgent")
+- **depends_on**: Comma-separated task IDs that must complete before this task
+- **parent_id**: Create subtasks by referencing a parent task
+- **progress_note**: Timestamped notes appended to the task log
+
+### Best practices
+
+- Keep task titles short and descriptive
+- Use progress notes to leave a trail for future sessions
+- Update task status before ending a session
+- Use tags consistently across tasks (e.g., "bug", "feature", "refactor", "test")
+- Don't create tasks for trivial one-off operations

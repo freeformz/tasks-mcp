@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tasks": {
+      "type": "stdio",
+      "command": "./tasks-mcp"
+    }
+  }
+}
