@@ -1,0 +1,7 @@
+tasks-mcp
+coverage.out
+dist/
+logs/
+.git/
+.github/
+.claude/

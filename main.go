@@ -14,6 +14,9 @@ import (
 var version = "dev"
 
 func dbPath() string {
+	if p := os.Getenv("TASKS_MCP_DB_PATH"); p != "" {
+		return p
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)

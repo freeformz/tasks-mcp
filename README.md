@@ -28,6 +28,12 @@ A task management [MCP](https://modelcontextprotocol.io/) server for AI agents, 
 go install github.com/freeformz/tasks-mcp@latest
 ```
 
+Or pull the Docker image:
+
+```sh
+docker pull ghcr.io/freeformz/tasks-mcp:latest
+```
+
 ## Configure
 
 Add to your project's `.mcp.json`:
@@ -42,6 +48,22 @@ Add to your project's `.mcp.json`:
   }
 }
 ```
+
+### Docker
+
+```json
+{
+  "mcpServers": {
+    "tasks": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "-v", "tasks-mcp-data:/data", "ghcr.io/freeformz/tasks-mcp:latest"]
+    }
+  }
+}
+```
+
+The database is stored at `/data/tasks.db` inside the container. The volume mount persists it across runs.
 
 ### Hooks (optional)
 
