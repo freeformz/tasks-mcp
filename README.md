@@ -22,10 +22,10 @@ A task management [MCP](https://modelcontextprotocol.io/) server for AI agents, 
 | `task_update` | Update fields, add/remove tags and dependencies, append progress notes |
 | `task_delete` | Delete a task and its subtasks |
 
-## Build
+## Install
 
 ```sh
-go build -o tasks-mcp .
+go install github.com/freeformz/tasks-mcp@latest
 ```
 
 ## Configure
@@ -37,21 +37,7 @@ Add to your project's `.mcp.json`:
   "mcpServers": {
     "tasks": {
       "type": "stdio",
-      "command": "go",
-      "args": ["run", "."]
-    }
-  }
-}
-```
-
-Or build and use the binary directly:
-
-```json
-{
-  "mcpServers": {
-    "tasks": {
-      "type": "stdio",
-      "command": "/path/to/tasks-mcp"
+      "command": "tasks-mcp"
     }
   }
 }
