@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -108,7 +109,37 @@ func StyledPriority(priority TaskPriority) string {
 	}
 }
 
-// getWorkingDir returns the current working directory.
-func getWorkingDir() (string, error) {
+// formatProgressNote creates a timestamped progress note entry.
+func formatProgressNote(note string) string {
+	timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
+	return fmt.Sprintf("[%s] %s", timestamp, note)
+}
+
+// appendProgressNote appends a new note to existing progress notes.
+func appendProgressNote(existing, newNote string) string {
+	if existing != "" {
+		return existing + "\n" + newNote
+	}
+	return newNote
+}
+
+// resolveWorkspace returns the given workspace if non-empty, or the current working directory.
+func resolveWorkspace(workspace string) (string, error) {
+	if workspace != "" {
+		return workspace, nil
+	}
 	return os.Getwd()
+}
+
+// validateDependencies checks that all dependencies of a task are done.
+// Returns an error describing incomplete dependencies, or nil if all are satisfied.
+func validateDependencies(db *DB, workspace, taskID, targetStatus string) error {
+	incomplete, err := db.CheckDependencies(workspace, taskID)
+	if err != nil {
+		return fmt.Errorf("check dependencies: %w", err)
+	}
+	if len(incomplete) > 0 {
+		return fmt.Errorf("%s", formatDependencyError(targetStatus, incomplete))
+	}
+	return nil
 }

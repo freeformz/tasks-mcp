@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -28,12 +27,10 @@ func listCmd() *cobra.Command {
 		Short: "List tasks in current workspace",
 		Long:  "Static table of open tasks. Use -i for interactive TUI mode with navigation, task details, and closing.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if workspace == "" {
-				wd, err := getWorkingDir()
-				if err != nil {
-					return err
-				}
-				workspace = wd
+			var err error
+			workspace, err = resolveWorkspace(workspace)
+			if err != nil {
+				return err
 			}
 
 			db, err := OpenDB(dbPath())
@@ -180,23 +177,11 @@ func (m listModel) closeTask(id string) tea.Cmd {
 			return errMsg{err: err}
 		}
 
-		incomplete, err := m.db.CheckDependencies(m.workspace, id)
-		if err != nil {
+		if err := validateDependencies(m.db, m.workspace, id, "done"); err != nil {
 			return errMsg{err: err}
 		}
-		if len(incomplete) > 0 {
-			return errMsg{err: fmt.Errorf("%s", formatDependencyError("done", incomplete))}
-		}
 
-		timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-		closedNote := fmt.Sprintf("[%s] Closed manually via CLI", timestamp)
-
-		notes := task.ProgressNotes
-		if notes != "" {
-			notes += "\n" + closedNote
-		} else {
-			notes = closedNote
-		}
+		notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
 
 		updates := map[string]string{
 			"status":         string(StatusDone),

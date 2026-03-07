@@ -115,17 +115,9 @@ func (d *DB) GetTask(workspace, id string) (*Task, error) {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
 
-	tags, err := d.getTaskTags(id)
-	if err != nil {
+	if err := d.enrichTaskMetadata(task); err != nil {
 		return nil, err
 	}
-	task.Tags = tags
-
-	deps, err := d.getTaskDependencies(id)
-	if err != nil {
-		return nil, err
-	}
-	task.DependsOn = deps
 
 	subtasks, err := d.getSubtasks(workspace, id)
 	if err != nil {
@@ -186,17 +178,9 @@ func (d *DB) ListTasks(workspace string, filter ListFilter) ([]Task, error) {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 
-		tags, err := d.getTaskTags(t.ID)
-		if err != nil {
+		if err := d.enrichTaskMetadata(t); err != nil {
 			return nil, err
 		}
-		t.Tags = tags
-
-		deps, err := d.getTaskDependencies(t.ID)
-		if err != nil {
-			return nil, err
-		}
-		t.DependsOn = deps
 
 		tasks = append(tasks, *t)
 	}
@@ -381,6 +365,21 @@ func (d *DB) HasActiveTasks(workspace string) (bool, error) {
 		`SELECT COUNT(*) FROM tasks WHERE workspace = ? AND status = 'in_progress'`, workspace,
 	).Scan(&count)
 	return count > 0, err
+}
+
+func (d *DB) enrichTaskMetadata(t *Task) error {
+	tags, err := d.getTaskTags(t.ID)
+	if err != nil {
+		return err
+	}
+	t.Tags = tags
+
+	deps, err := d.getTaskDependencies(t.ID)
+	if err != nil {
+		return err
+	}
+	t.DependsOn = deps
+	return nil
 }
 
 func (d *DB) getTaskTags(taskID string) ([]string, error) {

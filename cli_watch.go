@@ -183,12 +183,10 @@ func watchCmd() *cobra.Command {
 				dur = d
 			}
 
-			if workspace == "" {
-				wd, err := getWorkingDir()
-				if err != nil {
-					return err
-				}
-				workspace = wd
+			var err error
+			workspace, err = resolveWorkspace(workspace)
+			if err != nil {
+				return err
 			}
 
 			db, err := OpenDB(dbPath())

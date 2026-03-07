@@ -82,12 +82,10 @@ func pendingCmd() *cobra.Command {
 		SilenceUsage: true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if workspace == "" {
-				var err error
-				workspace, err = os.Getwd()
-				if err != nil {
-					return err
-				}
+			var err error
+			workspace, err = resolveWorkspace(workspace)
+			if err != nil {
+				return err
 			}
 
 			db, err := OpenDB(dbPath())
@@ -169,12 +167,10 @@ func checkActiveCmd() *cobra.Command {
 		SilenceUsage: true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if workspace == "" {
-				var err error
-				workspace, err = os.Getwd()
-				if err != nil {
-					return err
-				}
+			var err error
+			workspace, err = resolveWorkspace(workspace)
+			if err != nil {
+				return err
 			}
 
 			db, err := OpenDB(dbPath())

@@ -173,12 +173,8 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 
 			// Dependency enforcement: block in_progress/done if deps are incomplete.
 			if newStatus == string(StatusInProgress) || newStatus == string(StatusDone) {
-				incomplete, err := db.CheckDependencies(workspace, id)
-				if err != nil {
-					return errResult(fmt.Sprintf("check dependencies: %s", err)), nil
-				}
-				if len(incomplete) > 0 {
-					return errResult(formatDependencyError(newStatus, incomplete)), nil
+				if err := validateDependencies(db, workspace, id, newStatus); err != nil {
+					return errResult(err.Error()), nil
 				}
 			}
 
@@ -202,13 +198,8 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 			if err != nil {
 				return errResult(fmt.Sprintf("get task for note: %s", err)), nil
 			}
-			timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-			entry := fmt.Sprintf("[%s] %s", timestamp, note)
-			if existing.ProgressNotes != "" {
-				updates["progress_notes"] = existing.ProgressNotes + "\n" + entry
-			} else {
-				updates["progress_notes"] = entry
-			}
+			entry := formatProgressNote(note)
+			updates["progress_notes"] = appendProgressNote(existing.ProgressNotes, entry)
 		}
 
 		addTags := splitCSV(request.GetString("add_tags", ""))

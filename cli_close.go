@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -21,16 +20,10 @@ func closeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input := args[0]
 
-			if workspace == "" {
-				var err error
-				workspace, err = cmd.Flags().GetString("workspace")
-				if err != nil || workspace == "" {
-					wd, wdErr := getWorkingDir()
-					if wdErr != nil {
-						return wdErr
-					}
-					workspace = wd
-				}
+			var err error
+			workspace, err = resolveWorkspace(workspace)
+			if err != nil {
+				return err
 			}
 
 			db, err := OpenDB(dbPath())
@@ -44,28 +37,14 @@ func closeCmd() *cobra.Command {
 				return err
 			}
 
-			incomplete, err := db.CheckDependencies(workspace, task.ID)
-			if err != nil {
+			if err := validateDependencies(db, workspace, task.ID, "done"); err != nil {
 				return err
 			}
-			if len(incomplete) > 0 {
-				return fmt.Errorf("%s", formatDependencyError("done", incomplete))
-			}
 
-			timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-			closedNote := fmt.Sprintf("[%s] Closed manually via CLI", timestamp)
-
-			notes := task.ProgressNotes
-			if notes != "" {
-				notes += "\n" + closedNote
-			} else {
-				notes = closedNote
-			}
+			notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
 
 			if note != "" {
-				noteTimestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-				entry := fmt.Sprintf("[%s] %s", noteTimestamp, note)
-				notes += "\n" + entry
+				notes = appendProgressNote(notes, formatProgressNote(note))
 			}
 
 			updates := map[string]string{
