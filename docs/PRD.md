@@ -80,6 +80,7 @@ Multiple MCP server instances can share the same database safely via SQLite WAL 
 - **Mode**: WAL (Write-Ahead Logging) for concurrent multi-process access
 - **Busy timeout**: 5 seconds
 - **Foreign keys**: Enabled (cascade deletes for subtasks)
+- **Migrations**: Versioned via `PRAGMA user_version`, sequential and idempotent (see `migrations.go`)
 
 ### Workspace Isolation
 

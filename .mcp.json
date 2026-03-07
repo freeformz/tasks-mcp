@@ -2,7 +2,13 @@
   "mcpServers": {
     "tasks": {
       "type": "stdio",
-      "command": "./tasks-mcp"
+      "command": "go",
+      "args": ["run", "."]
+    },
+    "gopls": {
+      "type": "stdio",
+      "command": "gopls",
+      "args": ["mcp"]
     }
   }
 }

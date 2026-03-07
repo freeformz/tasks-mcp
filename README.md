@@ -37,6 +37,20 @@ Add to your project's `.mcp.json`:
   "mcpServers": {
     "tasks": {
       "type": "stdio",
+      "command": "go",
+      "args": ["run", "."]
+    }
+  }
+}
+```
+
+Or build and use the binary directly:
+
+```json
+{
+  "mcpServers": {
+    "tasks": {
+      "type": "stdio",
       "command": "/path/to/tasks-mcp"
     }
   }
@@ -83,7 +97,7 @@ Copy `.claude/rules/taskqueue.md` to your project's `.claude/rules/` directory t
 
 ## Database
 
-Tasks are stored in SQLite at `~/.local/share/tasks-mcp/tasks.db`. The database is created automatically on first run.
+Tasks are stored in SQLite at `~/.local/share/tasks-mcp/tasks.db`. The database is created automatically on first run. Schema changes are managed via versioned migrations tracked with SQLite's `PRAGMA user_version`.
 
 ## License
 

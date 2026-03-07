@@ -8,7 +8,8 @@ Task management MCP server for AI agents, built in Go.
 - `server.go` — MCP server setup and tool registration
 - `tools.go` — MCP tool handlers (task_create, task_list, task_get, task_update, task_delete)
 - `models.go` — Task model, status/priority enums
-- `db.go` — SQLite database layer (schema, CRUD, queries)
+- `db.go` — SQLite database layer (CRUD, queries)
+- `migrations.go` — Versioned schema migrations (PRAGMA user_version)
 - `hooks/` — Claude Code hook scripts (session-start, on-stop)
 - `.claude/rules/taskqueue.md` — Rules instructing Claude how to use the MCP
 - `.claude/settings.json` — Hook configuration

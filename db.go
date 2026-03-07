@@ -44,48 +44,6 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
-func (d *DB) migrate() error {
-	_, err := d.db.Exec(`
-		CREATE TABLE IF NOT EXISTS tasks (
-			id TEXT PRIMARY KEY,
-			workspace TEXT NOT NULL,
-			title TEXT NOT NULL,
-			description TEXT NOT NULL DEFAULT '',
-			status TEXT NOT NULL DEFAULT 'todo',
-			priority TEXT NOT NULL DEFAULT 'medium',
-			assignee TEXT NOT NULL DEFAULT '',
-			parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-			progress_notes TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS task_tags (
-			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-			tag TEXT NOT NULL,
-			PRIMARY KEY (task_id, tag)
-		);
-
-		CREATE TABLE IF NOT EXISTS task_dependencies (
-			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-			depends_on_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-			PRIMARY KEY (task_id, depends_on_id)
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace);
-		CREATE INDEX IF NOT EXISTS idx_tasks_workspace_status ON tasks(workspace, status);
-		CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
-		CREATE INDEX IF NOT EXISTS idx_tasks_workspace_assignee ON tasks(workspace, assignee);
-	`)
-	if err != nil {
-		return err
-	}
-
-	// Migration for existing databases: add assignee column if missing.
-	d.db.Exec(`ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`)
-	return nil
-}
-
 const taskColumns = `id, workspace, title, description, status, priority, assignee, parent_id, progress_notes, created_at, updated_at`
 
 func scanTask(scanner interface{ Scan(...any) error }) (*Task, error) {
