@@ -30,59 +30,56 @@ jobs:
 
       - name: Build MCPB bundles
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
 
-          # Map Go OS names to MCPB platform names
-          declare -A PLATFORM_MAP=( ["darwin"]="darwin" ["linux"]="linux" ["windows"]="win32" )
+          # Extract binary paths from GoReleaser artifacts
+          # Format: array of objects with fields: name, path, goos, goarch, type, extra
+          BINARIES=$(jq -c '.[] | select(.type == "Binary")' dist/artifacts.json)
 
-          for os in darwin linux windows; do
-            for arch in amd64 arm64; do
-              DIST_DIR="dist/tasks-mcp_${os}_${arch}"
-              if [ "$arch" = "amd64" ]; then
-                DIST_DIR="dist/tasks-mcp_${os}_${arch}_v1"
-              fi
+          echo "$BINARIES" | while read -r artifact; do
+            BINARY_PATH=$(echo "$artifact" | jq -r '.path')
+            GOOS=$(echo "$artifact" | jq -r '.goos')
+            GOARCH=$(echo "$artifact" | jq -r '.goarch')
 
-              BINARY="${DIST_DIR}/tasks-mcp"
-              if [ "$os" = "windows" ]; then
-                BINARY="${BINARY}.exe"
-              fi
+            # Map Go OS to MCPB platform name
+            case "$GOOS" in
+              darwin)  MCPB_PLATFORM="darwin" ;;
+              linux)   MCPB_PLATFORM="linux" ;;
+              windows) MCPB_PLATFORM="win32" ;;
+              *)       echo "Unknown OS: ${GOOS}, skipping"; continue ;;
+            esac
 
-              if [ ! -f "$BINARY" ]; then
-                echo "Skipping ${os}/${arch}: binary not found at ${BINARY}"
-                continue
-              fi
+            BUNDLE_DIR=$(mktemp -d)
+            mkdir -p "${BUNDLE_DIR}/server"
 
-              BUNDLE_DIR=$(mktemp -d)
-              mkdir -p "${BUNDLE_DIR}/server"
+            # Copy binary
+            BINARY_NAME="tasks-mcp"
+            if [ "$GOOS" = "windows" ]; then
+              BINARY_NAME="tasks-mcp.exe"
+            fi
+            cp "$BINARY_PATH" "${BUNDLE_DIR}/server/${BINARY_NAME}"
+            chmod +x "${BUNDLE_DIR}/server/${BINARY_NAME}"
 
-              # Copy binary
-              if [ "$os" = "windows" ]; then
-                cp "$BINARY" "${BUNDLE_DIR}/server/tasks-mcp.exe"
-              else
-                cp "$BINARY" "${BUNDLE_DIR}/server/tasks-mcp"
-                chmod +x "${BUNDLE_DIR}/server/tasks-mcp"
-              fi
+            # Generate platform-specific manifest
+            jq --arg version "$VERSION" \
+               --arg platform "$MCPB_PLATFORM" \
+               '.version = $version | .compatibility.platforms = [$platform]' \
+               manifest.json > "${BUNDLE_DIR}/manifest.json"
 
-              # Generate platform-specific manifest
-              MCPB_PLATFORM="${PLATFORM_MAP[$os]}"
-              jq --arg version "$VERSION" \
-                 --arg platform "$MCPB_PLATFORM" \
-                 '.version = $version | .compatibility.platforms = [$platform]' \
-                 manifest.json > "${BUNDLE_DIR}/manifest.json"
+            # Create .mcpb (ZIP) bundle
+            MCPB_NAME="tasks-mcp_${VERSION}_${GOOS}_${GOARCH}.mcpb"
+            (cd "$BUNDLE_DIR" && zip -r "${GITHUB_WORKSPACE}/${MCPB_NAME}" .)
 
-              # Create .mcpb (ZIP) bundle
-              MCPB_NAME="tasks-mcp_${VERSION}_${os}_${arch}.mcpb"
-              (cd "$BUNDLE_DIR" && zip -r "${GITHUB_WORKSPACE}/${MCPB_NAME}" .)
-
-              rm -rf "$BUNDLE_DIR"
-              echo "Created ${MCPB_NAME}"
-            done
+            rm -rf "$BUNDLE_DIR"
+            echo "Created ${MCPB_NAME}"
           done
 
       - name: Upload MCPB bundles to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           for mcpb in tasks-mcp_${VERSION}_*.mcpb; do
             [ -f "$mcpb" ] || continue
