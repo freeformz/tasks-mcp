@@ -42,10 +42,56 @@ func main() {
 		case "close":
 			runClose()
 			return
+		case "-h", "--help", "help":
+			printUsage()
+			return
+		case "--version", "version":
+			fmt.Println("tasks-mcp", version)
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+			printUsage()
+			os.Exit(1)
 		}
 	}
 
 	runServer()
+}
+
+func printUsage() {
+	fmt.Printf(`tasks-mcp %s — Task management MCP server for AI agents
+
+Usage:
+  tasks-mcp                          Start MCP server (stdio)
+  tasks-mcp list [flags]             List tasks in current workspace
+  tasks-mcp watch <id> [flags]       Watch a task and its subtask tree
+  tasks-mcp close <id> [flags]       Mark a task as done
+
+List flags:
+  -i                Interactive TUI mode
+  --subtasks        Show subtasks nested under parents
+  --status <s>      Filter by status (todo, in_progress, done, blocked)
+  --assignee <name> Filter by assignee
+  --include-done    Include completed tasks
+  --workspace <p>   Override workspace (default: cwd)
+
+Watch flags:
+  --interval <dur>  Poll interval (default: 5s)
+  --no-exit         Stay running after all tasks done
+  --workspace <p>   Override workspace (default: cwd)
+
+Close flags:
+  --note <text>     Add a progress note when closing
+  --workspace <p>   Override workspace (default: cwd)
+
+Hook subcommands (used by Claude Code hooks):
+  tasks-mcp pending --workspace <path>
+  tasks-mcp check-active --workspace <path>
+
+Options:
+  -h, --help        Show this help
+  --version         Show version
+`, version)
 }
 
 func runServer() {
