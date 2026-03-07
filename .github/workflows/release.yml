@@ -27,3 +27,65 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build MCPB bundles
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          # Map Go OS names to MCPB platform names
+          declare -A PLATFORM_MAP=( ["darwin"]="darwin" ["linux"]="linux" ["windows"]="win32" )
+
+          for os in darwin linux windows; do
+            for arch in amd64 arm64; do
+              DIST_DIR="dist/tasks-mcp_${os}_${arch}"
+              if [ "$arch" = "amd64" ]; then
+                DIST_DIR="dist/tasks-mcp_${os}_${arch}_v1"
+              fi
+
+              BINARY="${DIST_DIR}/tasks-mcp"
+              if [ "$os" = "windows" ]; then
+                BINARY="${BINARY}.exe"
+              fi
+
+              if [ ! -f "$BINARY" ]; then
+                echo "Skipping ${os}/${arch}: binary not found at ${BINARY}"
+                continue
+              fi
+
+              BUNDLE_DIR=$(mktemp -d)
+              mkdir -p "${BUNDLE_DIR}/server"
+
+              # Copy binary
+              if [ "$os" = "windows" ]; then
+                cp "$BINARY" "${BUNDLE_DIR}/server/tasks-mcp.exe"
+              else
+                cp "$BINARY" "${BUNDLE_DIR}/server/tasks-mcp"
+                chmod +x "${BUNDLE_DIR}/server/tasks-mcp"
+              fi
+
+              # Generate platform-specific manifest
+              MCPB_PLATFORM="${PLATFORM_MAP[$os]}"
+              jq --arg version "$VERSION" \
+                 --arg platform "$MCPB_PLATFORM" \
+                 '.version = $version | .compatibility.platforms = [$platform]' \
+                 manifest.json > "${BUNDLE_DIR}/manifest.json"
+
+              # Create .mcpb (ZIP) bundle
+              MCPB_NAME="tasks-mcp_${VERSION}_${os}_${arch}.mcpb"
+              (cd "$BUNDLE_DIR" && zip -r "${GITHUB_WORKSPACE}/${MCPB_NAME}" .)
+
+              rm -rf "$BUNDLE_DIR"
+              echo "Created ${MCPB_NAME}"
+            done
+          done
+
+      - name: Upload MCPB bundles to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for mcpb in tasks-mcp_${VERSION}_*.mcpb; do
+            [ -f "$mcpb" ] || continue
+            gh release upload "$GITHUB_REF_NAME" "$mcpb" --clobber
+            echo "Uploaded $mcpb"
+          done

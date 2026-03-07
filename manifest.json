@@ -1,0 +1,49 @@
+{
+  "manifest_version": "0.3",
+  "name": "tasks-mcp",
+  "display_name": "Tasks MCP",
+  "version": "0.0.0",
+  "description": "Task management MCP server for AI agents. Track multi-step work with SQLite-backed persistence, workspace isolation, dependencies, and team assignment.",
+  "author": {
+    "name": "freeformz",
+    "url": "https://github.com/freeformz"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/tasks-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/tasks-mcp",
+      "args": [],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "task_create",
+      "description": "Create a new task"
+    },
+    {
+      "name": "task_list",
+      "description": "List tasks with optional filters"
+    },
+    {
+      "name": "task_get",
+      "description": "Get details of a specific task"
+    },
+    {
+      "name": "task_update",
+      "description": "Update an existing task"
+    },
+    {
+      "name": "task_delete",
+      "description": "Delete a task"
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ]
+  }
+}
