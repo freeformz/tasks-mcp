@@ -20,7 +20,6 @@ Task management MCP server for AI agents, built in Go.
 ## Documentation
 
 - Any changes to features or how tools work must be reflected in `docs/PRD.md`
-- Changes to CLI args, commands, configuration, or usage must be reflected in `README.md`
 
 ## Code Conventions
 
