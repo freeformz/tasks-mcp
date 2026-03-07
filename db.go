@@ -92,6 +92,9 @@ func (d *DB) CreateTask(workspace, title, description string, status TaskStatus,
 		if depID == "" {
 			continue
 		}
+		if err := d.CheckCycle(id, depID); err != nil {
+			return nil, err
+		}
 		if _, err := tx.Exec(`INSERT INTO task_dependencies (task_id, depends_on_id) VALUES (?, ?)`, id, depID); err != nil {
 			return nil, fmt.Errorf("insert dependency %q: %w", depID, err)
 		}
@@ -255,6 +258,9 @@ func (d *DB) UpdateTask(workspace, id string, updates map[string]string, addTags
 		if depID == "" {
 			continue
 		}
+		if err := d.CheckCycle(id, depID); err != nil {
+			return nil, err
+		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_id) VALUES (?, ?)`, id, depID); err != nil {
 			return nil, fmt.Errorf("add dependency: %w", err)
 		}
@@ -289,6 +295,55 @@ func (d *DB) DeleteTask(workspace, id string) error {
 	if n == 0 {
 		return fmt.Errorf("task not found")
 	}
+	return nil
+}
+
+// CheckCycle detects whether adding a dependency from taskID to newDepID would
+// create a circular dependency. It also rejects self-dependencies.
+func (d *DB) CheckCycle(taskID, newDepID string) error {
+	if taskID == newDepID {
+		return fmt.Errorf("cannot add self-dependency: task %s depends on itself", taskID)
+	}
+
+	// BFS from newDepID through the dependency graph.
+	// If we reach taskID, adding this edge would create a cycle.
+	visited := map[string]bool{}
+	queue := []string{newDepID}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		rows, err := d.db.Query(`SELECT depends_on_id FROM task_dependencies WHERE task_id = ?`, current)
+		if err != nil {
+			return fmt.Errorf("check cycle: %w", err)
+		}
+
+		for rows.Next() {
+			var depID string
+			if err := rows.Scan(&depID); err != nil {
+				rows.Close()
+				return fmt.Errorf("check cycle scan: %w", err)
+			}
+			if depID == taskID {
+				rows.Close()
+				return fmt.Errorf("circular dependency detected: adding dependency %s -> %s would create a cycle", taskID, newDepID)
+			}
+			if !visited[depID] {
+				queue = append(queue, depID)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("check cycle rows: %w", err)
+		}
+	}
+
 	return nil
 }
 

@@ -488,6 +488,136 @@ func TestHasActiveTasks(t *testing.T) {
 	}
 }
 
+func TestCheckCycle_SelfDependency(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Task A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = db.CheckCycle(task.ID, task.ID)
+	if err == nil {
+		t.Fatal("expected error for self-dependency")
+	}
+}
+
+func TestCheckCycle_DirectCycle(t *testing.T) {
+	db := testDB(t)
+
+	a, err := db.CreateTask(testWorkspace, "A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.CreateTask(testWorkspace, "B", "", StatusTodo, PriorityMedium, "", "", nil, []string{a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// B depends on A. Adding A depends on B should fail.
+	err = db.CheckCycle(a.ID, b.ID)
+	if err == nil {
+		t.Fatal("expected error for direct cycle A->B->A")
+	}
+}
+
+func TestCheckCycle_TransitiveCycle(t *testing.T) {
+	db := testDB(t)
+
+	a, err := db.CreateTask(testWorkspace, "A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.CreateTask(testWorkspace, "B", "", StatusTodo, PriorityMedium, "", "", nil, []string{a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := db.CreateTask(testWorkspace, "C", "", StatusTodo, PriorityMedium, "", "", nil, []string{b.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// C->B->A. Adding A->C should fail.
+	err = db.CheckCycle(a.ID, c.ID)
+	if err == nil {
+		t.Fatal("expected error for transitive cycle A->C->B->A")
+	}
+}
+
+func TestCheckCycle_ValidDeps(t *testing.T) {
+	db := testDB(t)
+
+	a, err := db.CreateTask(testWorkspace, "A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.CreateTask(testWorkspace, "B", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A->B is fine when there's no path from B to A.
+	err = db.CheckCycle(a.ID, b.ID)
+	if err != nil {
+		t.Fatalf("unexpected error for valid dependency: %v", err)
+	}
+}
+
+func TestCreateTask_RejectsCycle(t *testing.T) {
+	db := testDB(t)
+
+	a, err := db.CreateTask(testWorkspace, "A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.CreateTask(testWorkspace, "B", "", StatusTodo, PriorityMedium, "", "", nil, []string{a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Creating C that depends on B is fine.
+	_, err = db.CreateTask(testWorkspace, "C", "", StatusTodo, PriorityMedium, "", "", nil, []string{b.ID})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Creating a task where A depends on B would be a cycle, but CreateTask generates a new ID.
+	// Instead test self-dep via update. Test cycle via update below.
+}
+
+func TestUpdateTask_RejectsCycle(t *testing.T) {
+	db := testDB(t)
+
+	a, err := db.CreateTask(testWorkspace, "A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.CreateTask(testWorkspace, "B", "", StatusTodo, PriorityMedium, "", "", nil, []string{a.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to add A->B dependency (B already depends on A), should fail.
+	_, err = db.UpdateTask(testWorkspace, a.ID, nil, nil, nil, []string{b.ID}, nil)
+	if err == nil {
+		t.Fatal("expected error for cycle when updating task")
+	}
+}
+
+func TestUpdateTask_RejectsSelfDependency(t *testing.T) {
+	db := testDB(t)
+
+	a, err := db.CreateTask(testWorkspace, "A", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.UpdateTask(testWorkspace, a.ID, nil, nil, nil, []string{a.ID}, nil)
+	if err == nil {
+		t.Fatal("expected error for self-dependency when updating task")
+	}
+}
+
 func TestPendingSummary(t *testing.T) {
 	db := testDB(t)
 
