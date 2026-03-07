@@ -1,0 +1,167 @@
+name: Dependency Health
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Monday 9am UTC
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        id: vulncheck
+        run: |
+          if govulncheck ./... 2>&1 | tee vulncheck-output.txt; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create issue if vulnerabilities found
+        if: steps.vulncheck.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Close any existing open vulncheck issues to avoid duplicates
+          gh issue list --label vulncheck --state open --json number --jq '.[].number' | while read -r num; do
+            gh issue close "$num" --comment "Superseded by new vulncheck run."
+          done
+
+          # Ensure the label exists
+          gh label create vulncheck --description "govulncheck vulnerability report" --color D93F0B 2>/dev/null || true
+
+          {
+            echo "## govulncheck report"
+            echo ""
+            echo '```'
+            cat vulncheck-output.txt
+            echo '```'
+            echo ""
+            echo "**Workflow run:** ${RUN_URL}"
+          } > issue-body.md
+
+          gh issue create \
+            --title "Security: govulncheck found vulnerabilities ($(date +%Y-%m-%d))" \
+            --body-file issue-body.md \
+            --label vulncheck
+
+  outdated-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check for outdated dependencies
+        id: check
+        run: |
+          # Get outdated deps: modules where Update field is present
+          go list -m -u -json all | \
+            jq -s '[.[] | select(.Update != null and .Main != true and .Indirect != true)]' > outdated-direct.json
+          go list -m -u -json all | \
+            jq -s '[.[] | select(.Update != null and .Main != true and .Indirect == true)]' > outdated-indirect.json
+
+          DIRECT_COUNT=$(jq 'length' outdated-direct.json)
+          INDIRECT_COUNT=$(jq 'length' outdated-indirect.json)
+          TOTAL=$((DIRECT_COUNT + INDIRECT_COUNT))
+
+          echo "direct_count=${DIRECT_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "indirect_count=${INDIRECT_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "total=${TOTAL}" >> "$GITHUB_OUTPUT"
+
+      - name: Create issue if outdated deps found
+        if: steps.check.outputs.total != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DIRECT_COUNT: ${{ steps.check.outputs.direct_count }}
+          INDIRECT_COUNT: ${{ steps.check.outputs.indirect_count }}
+        run: |
+          set -euo pipefail
+
+          # Ensure the label exists
+          gh label create dependencies --description "Dependency update tracking" --color 0075CA 2>/dev/null || true
+
+          # Find existing open issue to reference
+          PREV_ISSUE=$(gh issue list --label dependencies --state open --json number,url --jq '.[0]')
+          PREV_NUM=$(echo "$PREV_ISSUE" | jq -r '.number // empty')
+          PREV_URL=$(echo "$PREV_ISSUE" | jq -r '.url // empty')
+
+          # Build issue body
+          {
+            echo "## Outdated Dependencies"
+            echo ""
+            echo "${DIRECT_COUNT} direct, ${INDIRECT_COUNT} indirect dependencies have updates available."
+            echo ""
+
+            if [ "$(jq 'length' outdated-direct.json)" -gt 0 ]; then
+              echo "### Direct Dependencies"
+              echo ""
+              echo "| Module | Current | Available |"
+              echo "|--------|---------|-----------|"
+              jq -r '.[] | "| `\(.Path)` | \(.Version) | **\(.Update.Version)** |"' outdated-direct.json
+              echo ""
+            fi
+
+            if [ "$(jq 'length' outdated-indirect.json)" -gt 0 ]; then
+              echo "### Indirect Dependencies"
+              echo ""
+              echo "| Module | Current | Available |"
+              echo "|--------|---------|-----------|"
+              jq -r '.[] | "| `\(.Path)` | \(.Version) | **\(.Update.Version)** |"' outdated-indirect.json
+              echo ""
+            fi
+
+            echo "<details>"
+            echo "<summary>Raw JSON (direct)</summary>"
+            echo ""
+            echo '```json'
+            cat outdated-direct.json
+            echo '```'
+            echo "</details>"
+            echo ""
+            echo "<details>"
+            echo "<summary>Raw JSON (indirect)</summary>"
+            echo ""
+            echo '```json'
+            cat outdated-indirect.json
+            echo '```'
+            echo "</details>"
+            echo ""
+
+            if [ -n "$PREV_URL" ]; then
+              echo "Supersedes ${PREV_URL}"
+              echo ""
+            fi
+
+            echo "**Workflow run:** ${RUN_URL}"
+          } > issue-body.md
+
+          # Close previous issue
+          if [ -n "$PREV_NUM" ]; then
+            gh issue close "$PREV_NUM" --comment "Superseded by new dependency check."
+          fi
+
+          gh issue create \
+            --title "Dependencies: ${DIRECT_COUNT} direct, ${INDIRECT_COUNT} indirect updates available ($(date +%Y-%m-%d))" \
+            --body-file issue-body.md \
+            --label dependencies
