@@ -19,5 +19,6 @@ Dependencies are enforced: you cannot start or complete a task until its depende
 	)
 
 	registerTools(srv, db, workspace)
+	registerPresenceTools(srv, db, workspace)
 	return srv
 }

@@ -491,3 +491,141 @@ func TestHandlersAcceptContext(t *testing.T) {
 	// May or may not error depending on SQLite behavior with cancelled context.
 	_ = result
 }
+
+func TestHandleAgentPresenceRegister(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleAgentPresence(db, ws)
+
+	result, err := handler(t.Context(), makeRequest(map[string]any{
+		"action":     "register",
+		"agent_name": "test-agent",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %v", result.Content)
+	}
+
+	var resp map[string]string
+	text := result.Content[0].(mcp.TextContent).Text
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["session_id"] == "" {
+		t.Error("expected non-empty session_id")
+	}
+}
+
+func TestHandleAgentPresenceRegisterMissingName(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleAgentPresence(db, ws)
+
+	result, err := handler(t.Context(), makeRequest(map[string]any{
+		"action": "register",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing agent_name")
+	}
+}
+
+func TestHandleAgentPresenceLifecycle(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleAgentPresence(db, ws)
+
+	// Register.
+	regResult, _ := handler(t.Context(), makeRequest(map[string]any{
+		"action":     "register",
+		"agent_name": "lifecycle-agent",
+	}))
+	var resp map[string]string
+	json.Unmarshal([]byte(regResult.Content[0].(mcp.TextContent).Text), &resp)
+	sessionID := resp["session_id"]
+
+	// List — should see the agent.
+	listResult, _ := handler(t.Context(), makeRequest(map[string]any{"action": "list"}))
+	var agents []AgentPresence
+	json.Unmarshal([]byte(listResult.Content[0].(mcp.TextContent).Text), &agents)
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+
+	// Heartbeat.
+	hbResult, err := handler(t.Context(), makeRequest(map[string]any{
+		"action":     "heartbeat",
+		"session_id": sessionID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hbResult.IsError {
+		t.Fatalf("heartbeat error: %v", hbResult.Content)
+	}
+
+	// Deregister.
+	deregResult, err := handler(t.Context(), makeRequest(map[string]any{
+		"action":     "deregister",
+		"session_id": sessionID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deregResult.IsError {
+		t.Fatalf("deregister error: %v", deregResult.Content)
+	}
+
+	// List — should be empty.
+	listResult, _ = handler(t.Context(), makeRequest(map[string]any{"action": "list"}))
+	json.Unmarshal([]byte(listResult.Content[0].(mcp.TextContent).Text), &agents)
+	if len(agents) != 0 {
+		t.Fatalf("got %d agents after deregister, want 0", len(agents))
+	}
+}
+
+func TestHandleAgentPresenceInvalidAction(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleAgentPresence(db, ws)
+
+	result, err := handler(t.Context(), makeRequest(map[string]any{
+		"action": "invalid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for invalid action")
+	}
+}
+
+func TestHandleAgentPresenceHeartbeatMissingSession(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleAgentPresence(db, ws)
+
+	result, err := handler(t.Context(), makeRequest(map[string]any{
+		"action": "heartbeat",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing session_id")
+	}
+}
+
+func TestHandleAgentPresenceDeregisterMissingSession(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleAgentPresence(db, ws)
+
+	result, err := handler(t.Context(), makeRequest(map[string]any{
+		"action": "deregister",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing session_id")
+	}
+}

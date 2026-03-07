@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func testDB(t *testing.T) *DB {
@@ -615,6 +616,152 @@ func TestUpdateTask_RejectsSelfDependency(t *testing.T) {
 	_, err = db.UpdateTask(testWorkspace, a.ID, nil, nil, nil, []string{a.ID}, nil)
 	if err == nil {
 		t.Fatal("expected error for self-dependency when updating task")
+	}
+}
+
+func TestRegisterAndDeregisterPresence(t *testing.T) {
+	db := testDB(t)
+
+	err := db.RegisterPresence(testWorkspace, "agent-1", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	if agents[0].AgentName != "agent-1" {
+		t.Errorf("agent_name = %q, want agent-1", agents[0].AgentName)
+	}
+	if agents[0].SessionID != "session-1" {
+		t.Errorf("session_id = %q, want session-1", agents[0].SessionID)
+	}
+
+	err = db.DeregisterPresence(testWorkspace, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err = db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("got %d agents after deregister, want 0", len(agents))
+	}
+}
+
+func TestHeartbeatPresence(t *testing.T) {
+	db := testDB(t)
+
+	err := db.RegisterPresence(testWorkspace, "agent-1", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalHeartbeat := agents[0].LastHeartbeat
+
+	// Small sleep to ensure timestamp changes.
+	time.Sleep(10 * time.Millisecond)
+
+	err = db.HeartbeatPresence(testWorkspace, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err = db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !agents[0].LastHeartbeat.After(originalHeartbeat) {
+		t.Error("heartbeat did not update last_heartbeat timestamp")
+	}
+}
+
+func TestHeartbeatPresenceNotFound(t *testing.T) {
+	db := testDB(t)
+
+	err := db.HeartbeatPresence(testWorkspace, "nonexistent-session")
+	if err == nil {
+		t.Fatal("expected error for nonexistent session")
+	}
+}
+
+func TestStalePresenceCleanup(t *testing.T) {
+	db := testDB(t)
+
+	err := db.RegisterPresence(testWorkspace, "stale-agent", "stale-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Manually backdate the heartbeat to make it stale.
+	_, err = db.db.Exec(
+		`UPDATE agent_presence SET last_heartbeat = ? WHERE session_id = ?`,
+		time.Now().UTC().Add(-10*time.Minute), "stale-session",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("got %d agents, want 0 (stale should be cleaned up)", len(agents))
+	}
+}
+
+func TestPresenceWorkspaceIsolation(t *testing.T) {
+	db := testDB(t)
+
+	db.RegisterPresence(testWorkspace, "agent-1", "session-1")
+	db.RegisterPresence("/other/workspace", "agent-2", "session-2")
+
+	agents, err := db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	if agents[0].AgentName != "agent-1" {
+		t.Errorf("agent_name = %q, want agent-1", agents[0].AgentName)
+	}
+}
+
+func TestMultipleAgentsSameWorkspace(t *testing.T) {
+	db := testDB(t)
+
+	db.RegisterPresence(testWorkspace, "agent-1", "session-1")
+	db.RegisterPresence(testWorkspace, "agent-2", "session-2")
+	db.RegisterPresence(testWorkspace, "agent-3", "session-3")
+
+	agents, err := db.ListActivePresence(testWorkspace, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 3 {
+		t.Fatalf("got %d agents, want 3", len(agents))
+	}
+}
+
+func TestDeregisterNonexistentSession(t *testing.T) {
+	db := testDB(t)
+
+	// Should not error — just a no-op.
+	err := db.DeregisterPresence(testWorkspace, "nonexistent-session")
+	if err != nil {
+		t.Fatalf("deregister nonexistent session should not error: %v", err)
 	}
 }
 

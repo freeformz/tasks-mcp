@@ -60,3 +60,12 @@ type ListFilter struct {
 	Assignee    string
 	IncludeDone bool
 }
+
+type AgentPresence struct {
+	ID            string    `json:"id"`
+	Workspace     string    `json:"workspace"`
+	AgentName     string    `json:"agent_name"`
+	SessionID     string    `json:"session_id"`
+	StartedAt     time.Time `json:"started_at"`
+	LastHeartbeat time.Time `json:"last_heartbeat"`
+}

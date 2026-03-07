@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -234,6 +235,72 @@ func handleTaskDelete(db *DB, workspace string) server.ToolHandlerFunc {
 			return errResult(fmt.Sprintf("delete task: %s", err)), nil
 		}
 		return mcp.NewToolResultText("task deleted"), nil
+	}
+}
+
+const staleThreshold = 5 * time.Minute
+
+func registerPresenceTools(srv *server.MCPServer, db *DB, workspace string) {
+	srv.AddTool(
+		mcp.NewTool("agent_presence",
+			mcp.WithDescription("Track agent presence in a workspace. Use to register when starting, send heartbeats, deregister when stopping, or list active agents."),
+			mcp.WithString("action", mcp.Description("Action to perform: register, heartbeat, deregister, list"), mcp.Required()),
+			mcp.WithString("agent_name", mcp.Description("Agent name (required for register)")),
+			mcp.WithString("session_id", mcp.Description("Session ID (required for heartbeat and deregister, returned by register)")),
+		),
+		handleAgentPresence(db, workspace),
+	)
+}
+
+func handleAgentPresence(db *DB, workspace string) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		action := request.GetString("action", "")
+
+		switch action {
+		case "register":
+			agentName := request.GetString("agent_name", "")
+			if agentName == "" {
+				return errResult("agent_name is required for register"), nil
+			}
+			sessionID := uuid.New().String()
+			if err := db.RegisterPresence(workspace, agentName, sessionID); err != nil {
+				return errResult(fmt.Sprintf("register presence: %s", err)), nil
+			}
+			return jsonResult(map[string]string{"session_id": sessionID})
+
+		case "heartbeat":
+			sessionID := request.GetString("session_id", "")
+			if sessionID == "" {
+				return errResult("session_id is required for heartbeat"), nil
+			}
+			if err := db.HeartbeatPresence(workspace, sessionID); err != nil {
+				return errResult(fmt.Sprintf("heartbeat: %s", err)), nil
+			}
+			return mcp.NewToolResultText("ok"), nil
+
+		case "deregister":
+			sessionID := request.GetString("session_id", "")
+			if sessionID == "" {
+				return errResult("session_id is required for deregister"), nil
+			}
+			if err := db.DeregisterPresence(workspace, sessionID); err != nil {
+				return errResult(fmt.Sprintf("deregister: %s", err)), nil
+			}
+			return mcp.NewToolResultText("ok"), nil
+
+		case "list":
+			agents, err := db.ListActivePresence(workspace, staleThreshold)
+			if err != nil {
+				return errResult(fmt.Sprintf("list presence: %s", err)), nil
+			}
+			if agents == nil {
+				agents = []AgentPresence{}
+			}
+			return jsonResult(agents)
+
+		default:
+			return errResult("invalid action: must be register, heartbeat, deregister, or list"), nil
+		}
 	}
 }
 

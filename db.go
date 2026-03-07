@@ -419,6 +419,81 @@ func (d *DB) getTaskDependencies(taskID string) ([]string, error) {
 	return deps, rows.Err()
 }
 
+func (d *DB) RegisterPresence(workspace, agentName, sessionID string) error {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+	_, err := d.db.Exec(
+		`INSERT INTO agent_presence (id, workspace, agent_name, session_id, started_at, last_heartbeat)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		id, workspace, agentName, sessionID, now, now,
+	)
+	if err != nil {
+		return fmt.Errorf("register presence: %w", err)
+	}
+	return nil
+}
+
+func (d *DB) HeartbeatPresence(workspace, sessionID string) error {
+	result, err := d.db.Exec(
+		`UPDATE agent_presence SET last_heartbeat = ? WHERE session_id = ? AND workspace = ?`,
+		time.Now().UTC(), sessionID, workspace,
+	)
+	if err != nil {
+		return fmt.Errorf("heartbeat presence: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("heartbeat rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session not found")
+	}
+	return nil
+}
+
+func (d *DB) DeregisterPresence(workspace, sessionID string) error {
+	_, err := d.db.Exec(
+		`DELETE FROM agent_presence WHERE session_id = ? AND workspace = ?`,
+		sessionID, workspace,
+	)
+	if err != nil {
+		return fmt.Errorf("deregister presence: %w", err)
+	}
+	return nil
+}
+
+func (d *DB) ListActivePresence(workspace string, staleThreshold time.Duration) ([]AgentPresence, error) {
+	cutoff := time.Now().UTC().Add(-staleThreshold)
+
+	// Delete stale entries.
+	if _, err := d.db.Exec(
+		`DELETE FROM agent_presence WHERE workspace = ? AND last_heartbeat < ?`,
+		workspace, cutoff,
+	); err != nil {
+		return nil, fmt.Errorf("cleanup stale presence: %w", err)
+	}
+
+	rows, err := d.db.Query(
+		`SELECT id, workspace, agent_name, session_id, started_at, last_heartbeat
+		 FROM agent_presence WHERE workspace = ? ORDER BY started_at`,
+		workspace,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list presence: %w", err)
+	}
+	defer rows.Close()
+
+	var results []AgentPresence
+	for rows.Next() {
+		var p AgentPresence
+		if err := rows.Scan(&p.ID, &p.Workspace, &p.AgentName, &p.SessionID, &p.StartedAt, &p.LastHeartbeat); err != nil {
+			return nil, fmt.Errorf("scan presence: %w", err)
+		}
+		results = append(results, p)
+	}
+	return results, rows.Err()
+}
+
 func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 	rows, err := d.db.Query(
 		`SELECT `+taskColumns+` FROM tasks WHERE parent_id = ? AND workspace = ? ORDER BY created_at`, parentID, workspace,

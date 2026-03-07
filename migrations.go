@@ -8,6 +8,7 @@ import "fmt"
 var migrations = []func(*DB) error{
 	migrateV1InitialSchema,
 	migrateV2AddAssignee,
+	migrateV3AgentPresence,
 }
 
 func (d *DB) migrate() error {
@@ -86,4 +87,22 @@ func migrateV2AddAssignee(d *DB) error {
 	}
 
 	return nil
+}
+
+// migrateV3AgentPresence creates the agent_presence table for tracking
+// which agents are currently active in a workspace.
+func migrateV3AgentPresence(d *DB) error {
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS agent_presence (
+			id TEXT PRIMARY KEY,
+			workspace TEXT NOT NULL,
+			agent_name TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			started_at DATETIME NOT NULL,
+			last_heartbeat DATETIME NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_agent_presence_workspace ON agent_presence(workspace);
+	`)
+	return err
 }
