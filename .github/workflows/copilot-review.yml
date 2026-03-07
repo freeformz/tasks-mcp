@@ -1,0 +1,26 @@
+name: Copilot Review Gate
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  copilot-reviewed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for Copilot review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REVIEWS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
+            --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length')
+
+          if [ "$REVIEWS" -gt 0 ]; then
+            echo "Copilot has reviewed this PR"
+          else
+            echo "Waiting for Copilot review"
+            exit 1
+          fi
