@@ -33,29 +33,6 @@ func TestFormatActiveTasksReminderEmpty(t *testing.T) {
 	}
 }
 
-func TestFlagValueFrom(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		flag string
-		want string
-	}{
-		{"found", []string{"cmd", "--workspace", "/path"}, "--workspace", "/path"},
-		{"not found", []string{"cmd", "--other", "val"}, "--workspace", ""},
-		{"at end", []string{"cmd", "--workspace"}, "--workspace", ""},
-		{"empty args", []string{"cmd"}, "--workspace", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := flagValueFrom(tt.args, tt.flag)
-			if got != tt.want {
-				t.Errorf("flagValueFrom(%v, %q) = %q, want %q", tt.args, tt.flag, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestNewServer(t *testing.T) {
 	db := testDB(t)
 	srv := NewServer(db, testWorkspace)

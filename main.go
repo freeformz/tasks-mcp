@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/fang"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/spf13/cobra"
 )
 
 var version = "dev"
@@ -25,140 +28,116 @@ func dbPath() string {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		return
+	rootCmd := &cobra.Command{
+		Use:   "tasks-mcp",
+		Short: "Task management MCP server for AI agents",
+		Long:  "tasks-mcp is a task management MCP server designed for AI coding agents. It provides persistent, workspace-scoped task tracking across sessions.",
 	}
 
-	switch os.Args[1] {
-	case "mcp":
-		runServer()
-	case "pending":
-		runPending()
-	case "check-active":
-		runCheckActive()
-	case "list":
-		runList()
-	case "watch":
-		runWatch()
-	case "close":
-		runClose()
-	case "-h", "--help", "help":
-		printUsage()
-	case "--version", "version":
-		fmt.Println("tasks-mcp", version)
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
-		printUsage()
+	rootCmd.AddCommand(
+		mcpCmd(),
+		listCmd(),
+		watchCmd(),
+		closeCmd(),
+		pendingCmd(),
+		checkActiveCmd(),
+	)
+
+	if err := fang.Execute(context.Background(), rootCmd,
+		fang.WithVersion(version),
+	); err != nil {
 		os.Exit(1)
 	}
 }
 
-func printUsage() {
-	fmt.Printf(`tasks-mcp %s — Task management MCP server for AI agents
+func mcpCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Start MCP server (stdio)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			workspace, err := os.Getwd()
+			if err != nil {
+				return err
+			}
 
-Usage:
-  tasks-mcp mcp                      Start MCP server (stdio)
-  tasks-mcp list [flags]             List tasks in current workspace
-  tasks-mcp watch <id> [flags]       Watch a task and its subtask tree
-  tasks-mcp close <id> [flags]       Mark a task as done
+			db, err := OpenDB(dbPath())
+			if err != nil {
+				return err
+			}
+			defer db.Close()
 
-List flags:
-  -i                Interactive TUI mode
-  --subtasks        Show subtasks nested under parents
-  --status <s>      Filter by status (todo, in_progress, done, blocked)
-  --assignee <name> Filter by assignee
-  --include-done    Include completed tasks
-  --workspace <p>   Override workspace (default: cwd)
-
-Watch flags:
-  --interval <dur>  Poll interval (default: 5s)
-  --no-exit         Stay running after all tasks done
-  --workspace <p>   Override workspace (default: cwd)
-
-Close flags:
-  --note <text>     Add a progress note when closing
-  --workspace <p>   Override workspace (default: cwd)
-
-Hook subcommands (used by Claude Code hooks):
-  tasks-mcp pending --workspace <path>
-  tasks-mcp check-active --workspace <path>
-
-Options:
-  -h, --help        Show this help
-  --version         Show version
-`, version)
-}
-
-func runServer() {
-	workspace, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	db, err := OpenDB(dbPath())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	srv := NewServer(db, workspace)
-	if err := server.ServeStdio(srv); err != nil {
-		log.Fatal(err)
+			srv := NewServer(db, workspace)
+			return server.ServeStdio(srv)
+		},
 	}
 }
 
-func runPending() {
-	workspace := flagValue("--workspace")
-	if workspace == "" {
-		var err error
-		workspace, err = os.Getwd()
-		if err != nil {
-			log.Fatal(err)
-		}
+func pendingCmd() *cobra.Command {
+	var workspace string
+
+	cmd := &cobra.Command{
+		Use:    "pending",
+		Short:  "Print pending tasks (used by hooks)",
+		Hidden: true,
+		SilenceUsage: true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if workspace == "" {
+				var err error
+				workspace, err = os.Getwd()
+				if err != nil {
+					return err
+				}
+			}
+
+			db, err := OpenDB(dbPath())
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			tasks, err := db.PendingSummary(workspace)
+			if err != nil {
+				return err
+			}
+
+			if len(tasks) == 0 {
+				return nil
+			}
+
+			var inProgress, other []Task
+			for _, t := range tasks {
+				if t.Status == StatusInProgress {
+					inProgress = append(inProgress, t)
+				} else {
+					other = append(other, t)
+				}
+			}
+
+			if len(inProgress) > 0 {
+				fmt.Println("## In-Progress Tasks (update or complete these first)")
+				fmt.Println()
+				for _, t := range inProgress {
+					printTask(t)
+				}
+				fmt.Println()
+			}
+
+			if len(other) > 0 {
+				fmt.Println("## Pending Tasks")
+				fmt.Println()
+				for _, t := range other {
+					printTask(t)
+				}
+			}
+
+			return nil
+		},
 	}
 
-	db, err := OpenDB(dbPath())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
+	cmd.Flags().StringVar(&workspace, "workspace", "", "workspace path")
 
-	tasks, err := db.PendingSummary(workspace)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if len(tasks) == 0 {
-		return
-	}
-
-	// Separate in-progress tasks for prominent display.
-	var inProgress, other []Task
-	for _, t := range tasks {
-		if t.Status == StatusInProgress {
-			inProgress = append(inProgress, t)
-		} else {
-			other = append(other, t)
-		}
-	}
-
-	if len(inProgress) > 0 {
-		fmt.Println("## In-Progress Tasks (update or complete these first)")
-		fmt.Println()
-		for _, t := range inProgress {
-			printTask(t)
-		}
-		fmt.Println()
-	}
-
-	if len(other) > 0 {
-		fmt.Println("## Pending Tasks")
-		fmt.Println()
-		for _, t := range other {
-			printTask(t)
-		}
-	}
+	return cmd
 }
 
 func printTask(t Task) {
@@ -180,61 +159,63 @@ func printTask(t Task) {
 	}
 }
 
-func runCheckActive() {
-	workspace := flagValue("--workspace")
-	if workspace == "" {
-		var err error
-		workspace, err = os.Getwd()
-		if err != nil {
-			log.Fatal(err)
-		}
+func checkActiveCmd() *cobra.Command {
+	var workspace string
+
+	cmd := &cobra.Command{
+		Use:    "check-active",
+		Short:  "Check for active tasks (used by hooks)",
+		Hidden: true,
+		SilenceUsage: true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if workspace == "" {
+				var err error
+				workspace, err = os.Getwd()
+				if err != nil {
+					return err
+				}
+			}
+
+			db, err := OpenDB(dbPath())
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			hasActive, err := db.HasActiveTasks(workspace)
+			if err != nil {
+				return err
+			}
+
+			if hasActive {
+				tasks, err := db.ListTasks(workspace, ListFilter{Status: string(StatusInProgress)})
+				if err != nil {
+					return err
+				}
+
+				result := map[string]any{
+					"decision": "block",
+					"reason":   formatActiveTasksReminder(tasks),
+				}
+				json.NewEncoder(os.Stdout).Encode(result)
+			}
+
+			return nil
+		},
 	}
 
-	db, err := OpenDB(dbPath())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
+	cmd.Flags().StringVar(&workspace, "workspace", "", "workspace path")
 
-	hasActive, err := db.HasActiveTasks(workspace)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if hasActive {
-		tasks, err := db.ListTasks(workspace, ListFilter{Status: string(StatusInProgress)})
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Output JSON for the hook to use.
-		result := map[string]any{
-			"decision": "block",
-			"reason":   formatActiveTasksReminder(tasks),
-		}
-		json.NewEncoder(os.Stdout).Encode(result)
-	}
+	return cmd
 }
 
 func formatActiveTasksReminder(tasks []Task) string {
 	var b strings.Builder
 	b.WriteString("You have in-progress tasks that should be updated before ending the session:\n")
 	for _, t := range tasks {
-		b.WriteString(fmt.Sprintf("- %s (id: %s)\n", t.Title, t.ID))
+		fmt.Fprintf(&b, "- %s (id: %s)\n", t.Title, t.ID)
 	}
 	b.WriteString("\nPlease update these tasks with progress notes and appropriate status (done, blocked, or todo) before stopping.")
 	return b.String()
-}
-
-func flagValue(name string) string {
-	return flagValueFrom(os.Args, name)
-}
-
-func flagValueFrom(args []string, name string) string {
-	for i, arg := range args {
-		if arg == name && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return ""
 }

@@ -4,7 +4,7 @@ Task management MCP server for AI agents, built in Go.
 
 ## Project Structure
 
-- `main.go` — Entry point, MCP server + CLI subcommands (pending, check-active)
+- `main.go` — Entry point, Cobra root command, MCP server + hook subcommands (pending, check-active)
 - `server.go` — MCP server setup and tool registration
 - `tools.go` — MCP tool handlers (task_create, task_list, task_get, task_update, task_delete)
 - `models.go` — Task model, status/priority enums
@@ -16,6 +16,10 @@ Task management MCP server for AI agents, built in Go.
 - `.goreleaser.yml` — GoReleaser config (builds, archives, MCPB bundles)
 - `Makefile` — Build, test, and release tasks
 - `.github/workflows/` — CI (test on push/PR) and Release (on semver tags)
+
+## Documentation
+
+- Any changes to features or how tools work must be reflected in `docs/PRD.md`
 
 ## Code Conventions
 

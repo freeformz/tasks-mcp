@@ -10,44 +10,71 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/spf13/cobra"
 )
 
-func runList() {
-	interactive := hasFlag(os.Args, "-i")
-	showSubtasks := hasFlag(os.Args, "--subtasks")
-	includeDone := hasFlag(os.Args, "--include-done")
-	statusFilter := flagValue("--status")
-	assigneeFilter := flagValue("--assignee")
-	workspace := cliWorkspace()
+func listCmd() *cobra.Command {
+	var (
+		interactive bool
+		showSubtasks bool
+		includeDone  bool
+		statusFilter string
+		assigneeFilter string
+		workspace    string
+	)
 
-	db, err := OpenDB(dbPath())
-	if err != nil {
-		log.Fatal(err)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List tasks in current workspace",
+		Long:  "Static table of open tasks. Use -i for interactive TUI mode with navigation, task details, and closing.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if workspace == "" {
+				wd, err := getWorkingDir()
+				if err != nil {
+					return err
+				}
+				workspace = wd
+			}
+
+			db, err := OpenDB(dbPath())
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if interactive {
+				return runListInteractive(db, workspace)
+			}
+
+			filter := ListFilter{
+				Status:      statusFilter,
+				Assignee:    assigneeFilter,
+				IncludeDone: includeDone,
+			}
+
+			tasks, err := db.ListTasks(workspace, filter)
+			if err != nil {
+				return err
+			}
+
+			if len(tasks) == 0 {
+				fmt.Println("No tasks found.")
+				return nil
+			}
+
+			printTaskTable(os.Stdout, tasks, showSubtasks, db, workspace)
+			return nil
+		},
 	}
-	defer db.Close()
 
-	if interactive {
-		runListInteractive(db, workspace)
-		return
-	}
+	cmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "interactive TUI mode")
+	cmd.Flags().BoolVar(&showSubtasks, "subtasks", false, "show subtasks nested under parents")
+	cmd.Flags().BoolVar(&includeDone, "include-done", false, "include completed tasks")
+	cmd.Flags().StringVar(&statusFilter, "status", "", "filter by status (todo, in_progress, done, blocked)")
+	cmd.Flags().StringVar(&assigneeFilter, "assignee", "", "filter by assignee name")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "override workspace (default: cwd)")
 
-	filter := ListFilter{
-		Status:      statusFilter,
-		Assignee:    assigneeFilter,
-		IncludeDone: includeDone,
-	}
-
-	tasks, err := db.ListTasks(workspace, filter)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if len(tasks) == 0 {
-		fmt.Println("No tasks found.")
-		return
-	}
-
-	printTaskTable(os.Stdout, tasks, showSubtasks, db, workspace)
+	return cmd
 }
 
 // printTaskTable writes a formatted task table to the given writer.
@@ -284,8 +311,8 @@ func (m listModel) updateConfirmClose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var (
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
 	selectedBg = lipgloss.NewStyle().Background(lipgloss.Color("8"))
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	labelStyle  = lipgloss.NewStyle().Bold(true)
+	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	labelStyle = lipgloss.NewStyle().Bold(true)
 )
 
 func (m listModel) View() string {
@@ -399,10 +426,9 @@ func (m listModel) viewConfirmClose() string {
 	return b.String()
 }
 
-func runListInteractive(db *DB, workspace string) {
+func runListInteractive(db *DB, workspace string) error {
 	m := newListModel(db, workspace)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		log.Fatal(err)
-	}
+	_, err := p.Run()
+	return err
 }

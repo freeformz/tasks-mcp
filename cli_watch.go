@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -122,8 +122,7 @@ func (m watchModel) View() string {
 }
 
 // renderTree renders a task and its subtasks as an indented tree.
-// indent is the prefix for continuation lines under the current node.
-func renderTree(t *Task, prefix string, isRoot bool) string {
+func renderTree(t *Task, prefix string, _ bool) string {
 	var b strings.Builder
 
 	b.WriteString(renderTaskLine(t) + "\n")
@@ -151,7 +150,6 @@ func renderTree(t *Task, prefix string, isRoot bool) string {
 func renderTaskLine(t *Task) string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("[%s] %s", StyledStatus(t.Status), t.Title))
-
 	parts = append(parts, fmt.Sprintf("(%s)", StyledPriority(t.Priority)))
 
 	if t.Assignee != "" {
@@ -161,50 +159,70 @@ func renderTaskLine(t *Task) string {
 	return strings.Join(parts, " ")
 }
 
-func runWatch() {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: tasks-mcp watch <task-id> [--interval <duration>] [--no-exit] [--workspace <path>]")
-		os.Exit(1)
+func watchCmd() *cobra.Command {
+	var (
+		interval  string
+		noExit    bool
+		workspace string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "watch <id>",
+		Short: "Watch a task and its subtask tree",
+		Long:  "Live-updating TUI that displays a task and its full subtask tree. Polls the database for changes and re-renders automatically. Exits when all tasks are done.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			taskInput := args[0]
+
+			dur := 5 * time.Second
+			if interval != "" {
+				d, err := time.ParseDuration(interval)
+				if err != nil {
+					return fmt.Errorf("invalid interval %q: %w", interval, err)
+				}
+				dur = d
+			}
+
+			if workspace == "" {
+				wd, err := getWorkingDir()
+				if err != nil {
+					return err
+				}
+				workspace = wd
+			}
+
+			db, err := OpenDB(dbPath())
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			task, err := ResolveTaskID(db, workspace, taskInput)
+			if err != nil {
+				return err
+			}
+
+			m := watchModel{
+				db:        db,
+				workspace: workspace,
+				taskID:    task.ID,
+				task:      task,
+				interval:  dur,
+				noExit:    noExit,
+				allDone:   allTasksDone(task),
+			}
+
+			p := tea.NewProgram(m)
+			if _, err := p.Run(); err != nil {
+				log.Fatal(err)
+			}
+			return nil
+		},
 	}
 
-	taskInput := os.Args[2]
+	cmd.Flags().StringVar(&interval, "interval", "5s", "poll interval")
+	cmd.Flags().BoolVar(&noExit, "no-exit", false, "stay running after all tasks done")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "override workspace (default: cwd)")
 
-	interval := 5 * time.Second
-	if v := flagValue("--interval"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			log.Fatalf("invalid interval %q: %v", v, err)
-		}
-		interval = d
-	}
-
-	noExit := hasFlag(os.Args, "--no-exit")
-	workspace := cliWorkspace()
-
-	db, err := OpenDB(dbPath())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	task, err := ResolveTaskID(db, workspace, taskInput)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	m := watchModel{
-		db:        db,
-		workspace: workspace,
-		taskID:    task.ID,
-		task:      task,
-		interval:  interval,
-		noExit:    noExit,
-		allDone:   allTasksDone(task),
-	}
-
-	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
-		log.Fatal(err)
-	}
+	return cmd
 }
-

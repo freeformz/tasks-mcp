@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -62,7 +61,6 @@ func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
 	case 0:
 		return nil, fmt.Errorf("no task found matching suffix %q", suffix)
 	case 1:
-		// Load full task details (tags, deps, subtasks).
 		return d.GetTask(workspace, matches[0].ID)
 	default:
 		var ids []string
@@ -110,25 +108,7 @@ func StyledPriority(priority TaskPriority) string {
 	}
 }
 
-// hasFlag checks if a boolean flag is present in the args.
-func hasFlag(args []string, name string) bool {
-	for _, arg := range args {
-		if arg == name {
-			return true
-		}
-	}
-	return false
-}
-
-// cliWorkspace resolves the workspace from CLI args or cwd.
-func cliWorkspace() string {
-	ws := flagValue("--workspace")
-	if ws != "" {
-		return ws
-	}
-	ws, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-	return ws
+// getWorkingDir returns the current working directory.
+func getWorkingDir() (string, error) {
+	return os.Getwd()
 }

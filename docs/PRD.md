@@ -294,7 +294,7 @@ The MCP server provides inline instructions via the `WithInstructions` option, g
 
 ## CLI
 
-Running with no arguments displays help. The `mcp` subcommand starts the MCP server. Supports `--help` / `-h` / `help` for usage information and `--version` for version display. Unknown commands print an error with usage to stderr and exit with code 1.
+Built with [Cobra](https://github.com/spf13/cobra) and [Fang](https://github.com/charmbracelet/fang) for styled help output, shell completions, and version display. Running with no arguments displays help. The `mcp` subcommand starts the MCP server.
 
 ### Hook Subcommands
 
@@ -391,6 +391,7 @@ Marks a task as done from the command line.
 - **Language**: Go 1.26+
 - **Database**: SQLite via modernc.org/sqlite (pure Go)
 - **MCP SDK**: github.com/mark3labs/mcp-go
+- **CLI**: github.com/spf13/cobra, github.com/charmbracelet/fang (styled help, version, completions)
 - **TUI**: github.com/charmbracelet/bubbletea, github.com/charmbracelet/bubbles, github.com/charmbracelet/lipgloss
 - **Transport**: stdio (stdin/stdout JSON) for MCP; terminal for CLI
 - **Platform**: macOS, Linux (anywhere Go compiles)
