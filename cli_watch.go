@@ -32,11 +32,6 @@ const (
 	viewConfirmClose
 )
 
-// tasksLoadedMsg is sent when the task list has been refreshed.
-type tasksLoadedMsg struct {
-	tasks []Task
-}
-
 // taskDetailMsg is sent when a single task's details have been loaded.
 type taskDetailMsg struct {
 	task *Task
@@ -163,13 +158,6 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd(m.interval)
 
-	case tasksLoadedMsg:
-		m.tasks = msg.tasks
-		if m.cursor >= len(m.tasks) {
-			m.cursor = max(0, len(m.tasks)-1)
-		}
-		return m, nil
-
 	case taskDetailMsg:
 		m.detail = msg.task
 		m.view = viewDetail
@@ -178,8 +166,8 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskClosedMsg:
 		m.view = viewList
 		m.detail = nil
-		// Tasks will refresh on next tick.
-		return m, nil
+		// Refresh immediately so the closed task disappears.
+		return m, tickCmd(0)
 
 	case errMsg:
 		m.err = msg.err
@@ -203,6 +191,11 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m watchModel) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		m.quitting = true
+		return m, tea.Quit
+	}
 	switch msg.String() {
 	case "q":
 		m.quitting = true
@@ -228,6 +221,11 @@ func (m watchModel) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m watchModel) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		m.quitting = true
+		return m, tea.Quit
+	}
 	switch msg.String() {
 	case "q":
 		m.quitting = true
@@ -240,6 +238,11 @@ func (m watchModel) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m watchModel) updateConfirmCloseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		m.quitting = true
+		return m, tea.Quit
+	}
 	switch msg.String() {
 	case "y":
 		if len(m.tasks) == 0 || m.cursor < 0 || m.cursor >= len(m.tasks) {
