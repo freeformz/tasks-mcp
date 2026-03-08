@@ -9,7 +9,7 @@ input=$(cat)
 
 # If this is a re-fire after we already blocked once, let Claude stop.
 if [ "$(echo "$input" | jq -r '.stop_hook_active')" = "true" ]; then
-    echo '{"decision":"allow"}'
+    echo '{"decision":"approve"}'
     exit 0
 fi
 
