@@ -82,44 +82,6 @@ func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error)
 	return task, warning, nil
 }
 
-// FindTaskBySuffix finds a task whose ID ends with the given suffix.
-// Returns an error if zero or multiple tasks match.
-func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
-	rows, err := d.db.Query(
-		`SELECT `+taskColumns+` FROM tasks WHERE workspace = ? AND id LIKE ? ESCAPE '\'`,
-		workspace, "%"+escapeLikePattern(suffix),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("find by suffix: %w", err)
-	}
-	defer rows.Close()
-
-	var matches []*Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
-		}
-		matches = append(matches, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	switch len(matches) {
-	case 0:
-		return nil, fmt.Errorf("%w: no task matching suffix %q", ErrTaskNotFound, suffix)
-	case 1:
-		return d.GetTask(workspace, matches[0].ID)
-	default:
-		var ids []string
-		for _, m := range matches {
-			ids = append(ids, m.ID)
-		}
-		return nil, fmt.Errorf("ambiguous suffix %q matches %d tasks: %s", suffix, len(matches), strings.Join(ids, ", "))
-	}
-}
-
 var (
 	statusStyleDone       = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
 	statusStyleInProgress = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))  // yellow

@@ -77,21 +77,13 @@ func (d *DB) CreateTask(workspace, title, description string, status TaskStatus,
 		return nil, fmt.Errorf("insert task: %w", err)
 	}
 
-	for _, tag := range tags {
-		tag = strings.TrimSpace(tag)
-		if tag == "" {
-			continue
-		}
+	for _, tag := range trimSlice(tags) {
 		if _, err := tx.Exec(`INSERT INTO task_tags (task_id, tag) VALUES (?, ?)`, id, tag); err != nil {
 			return nil, fmt.Errorf("insert tag %q: %w", tag, err)
 		}
 	}
 
-	for _, depID := range dependsOn {
-		depID = strings.TrimSpace(depID)
-		if depID == "" {
-			continue
-		}
+	for _, depID := range trimSlice(dependsOn) {
 		if err := d.CheckCycle(id, depID); err != nil {
 			return nil, err
 		}
@@ -108,40 +100,31 @@ func (d *DB) CreateTask(workspace, title, description string, status TaskStatus,
 }
 
 func (d *DB) GetTask(workspace, id string) (*Task, error) {
-	task, err := scanTask(d.db.QueryRow(
-		`SELECT `+taskColumns+` FROM tasks WHERE id = ? AND workspace = ?`, id, workspace,
-	))
-	if err != nil {
-		return nil, fmt.Errorf("get task: %w", err)
-	}
-
-	if err := d.enrichTaskMetadata(task); err != nil {
-		return nil, err
-	}
-
-	subtasks, err := d.getSubtasks(workspace, id)
-	if err != nil {
-		return nil, err
-	}
-	task.Subtasks = subtasks
-
-	return task, nil
+	return d.getTask(
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ? AND workspace = ?`,
+		"get task", id, workspace,
+	)
 }
 
 // GetTaskGlobal retrieves a task by ID without workspace scoping.
 func (d *DB) GetTaskGlobal(id string) (*Task, error) {
-	task, err := scanTask(d.db.QueryRow(
-		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id,
-	))
+	return d.getTask(
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`,
+		"get task (global)", id,
+	)
+}
+
+func (d *DB) getTask(query, errPrefix string, args ...any) (*Task, error) {
+	task, err := scanTask(d.db.QueryRow(query, args...))
 	if err != nil {
-		return nil, fmt.Errorf("get task (global): %w", err)
+		return nil, fmt.Errorf("%s: %w", errPrefix, err)
 	}
 
 	if err := d.enrichTaskMetadata(task); err != nil {
 		return nil, err
 	}
 
-	subtasks, err := d.getSubtasks(task.Workspace, id)
+	subtasks, err := d.getSubtasks(task.Workspace, task.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,12 +142,28 @@ func escapeLikePattern(s string) string {
 	return s
 }
 
+// FindTaskBySuffix finds a task whose ID ends with the given suffix within a workspace.
+func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
+	return d.findBySuffix(
+		`SELECT `+taskColumns+` FROM tasks WHERE workspace = ? AND id LIKE ? ESCAPE '\'`,
+		func(t *Task) (*Task, error) { return d.GetTask(workspace, t.ID) },
+		func(m *Task) string { return m.ID },
+		suffix, workspace, "%"+escapeLikePattern(suffix),
+	)
+}
+
 // FindTaskBySuffixGlobal finds a task whose ID ends with the given suffix across all workspaces.
 func (d *DB) FindTaskBySuffixGlobal(suffix string) (*Task, error) {
-	rows, err := d.db.Query(
+	return d.findBySuffix(
 		`SELECT `+taskColumns+` FROM tasks WHERE id LIKE ? ESCAPE '\'`,
-		"%"+escapeLikePattern(suffix),
+		func(t *Task) (*Task, error) { return d.GetTaskGlobal(t.ID) },
+		func(m *Task) string { return fmt.Sprintf("%s (%s)", ShortID(m.ID), m.Workspace) },
+		suffix, "%"+escapeLikePattern(suffix),
 	)
+}
+
+func (d *DB) findBySuffix(query string, fetch func(*Task) (*Task, error), describe func(*Task) string, suffix string, args ...any) (*Task, error) {
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("find by suffix: %w", err)
 	}
@@ -186,11 +185,11 @@ func (d *DB) FindTaskBySuffixGlobal(suffix string) (*Task, error) {
 	case 0:
 		return nil, fmt.Errorf("%w: no task matching suffix %q", ErrTaskNotFound, suffix)
 	case 1:
-		return d.GetTaskGlobal(matches[0].ID)
+		return fetch(matches[0])
 	default:
 		var descs []string
 		for _, m := range matches {
-			descs = append(descs, fmt.Sprintf("%s (%s)", ShortID(m.ID), m.Workspace))
+			descs = append(descs, describe(m))
 		}
 		return nil, fmt.Errorf("ambiguous suffix %q matches %d tasks: %s", suffix, len(matches), strings.Join(descs, ", "))
 	}
@@ -294,31 +293,19 @@ func (d *DB) UpdateTask(workspace, id string, updates map[string]string, addTags
 		}
 	}
 
-	for _, tag := range addTags {
-		tag = strings.TrimSpace(tag)
-		if tag == "" {
-			continue
-		}
+	for _, tag := range trimSlice(addTags) {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES (?, ?)`, id, tag); err != nil {
 			return nil, fmt.Errorf("add tag: %w", err)
 		}
 	}
 
-	for _, tag := range removeTags {
-		tag = strings.TrimSpace(tag)
-		if tag == "" {
-			continue
-		}
+	for _, tag := range trimSlice(removeTags) {
 		if _, err := tx.Exec(`DELETE FROM task_tags WHERE task_id = ? AND tag = ?`, id, tag); err != nil {
 			return nil, fmt.Errorf("remove tag: %w", err)
 		}
 	}
 
-	for _, depID := range addDeps {
-		depID = strings.TrimSpace(depID)
-		if depID == "" {
-			continue
-		}
+	for _, depID := range trimSlice(addDeps) {
 		if err := d.CheckCycle(id, depID); err != nil {
 			return nil, err
 		}
@@ -327,11 +314,7 @@ func (d *DB) UpdateTask(workspace, id string, updates map[string]string, addTags
 		}
 	}
 
-	for _, depID := range removeDeps {
-		depID = strings.TrimSpace(depID)
-		if depID == "" {
-			continue
-		}
+	for _, depID := range trimSlice(removeDeps) {
 		if _, err := tx.Exec(`DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_id = ?`, id, depID); err != nil {
 			return nil, fmt.Errorf("remove dependency: %w", err)
 		}
@@ -445,54 +428,37 @@ func (d *DB) HasActiveTasks(workspace string) (bool, error) {
 }
 
 func (d *DB) enrichTaskMetadata(t *Task) error {
-	tags, err := d.getTaskTags(t.ID)
+	tags, err := d.queryStrings(`SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag`, t.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("get tags: %w", err)
 	}
 	t.Tags = tags
 
-	deps, err := d.getTaskDependencies(t.ID)
+	deps, err := d.queryStrings(`SELECT depends_on_id FROM task_dependencies WHERE task_id = ?`, t.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("get dependencies: %w", err)
 	}
 	t.DependsOn = deps
 	return nil
 }
 
-func (d *DB) getTaskTags(taskID string) ([]string, error) {
-	rows, err := d.db.Query(`SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag`, taskID)
+// queryStrings executes a query returning a single string column and collects the results.
+func (d *DB) queryStrings(query string, args ...any) ([]string, error) {
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("get tags: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
-	var tags []string
+	var results []string
 	for rows.Next() {
-		var tag string
-		if err := rows.Scan(&tag); err != nil {
+		var s string
+		if err := rows.Scan(&s); err != nil {
 			return nil, err
 		}
-		tags = append(tags, tag)
+		results = append(results, s)
 	}
-	return tags, rows.Err()
-}
-
-func (d *DB) getTaskDependencies(taskID string) ([]string, error) {
-	rows, err := d.db.Query(`SELECT depends_on_id FROM task_dependencies WHERE task_id = ?`, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("get dependencies: %w", err)
-	}
-	defer rows.Close()
-
-	var deps []string
-	for rows.Next() {
-		var dep string
-		if err := rows.Scan(&dep); err != nil {
-			return nil, err
-		}
-		deps = append(deps, dep)
-	}
-	return deps, rows.Err()
+	return results, rows.Err()
 }
 
 func (d *DB) RegisterPresence(workspace, agentName, sessionID string) error {
@@ -586,11 +552,10 @@ func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 			return nil, err
 		}
 
-		tags, err := d.getTaskTags(t.ID)
+		t.Tags, err = d.queryStrings(`SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag`, t.ID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get subtask tags: %w", err)
 		}
-		t.Tags = tags
 		subtasks = append(subtasks, *t)
 	}
 	return subtasks, rows.Err()
