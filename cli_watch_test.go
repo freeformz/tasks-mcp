@@ -841,11 +841,11 @@ func TestDetailModeCloseSubtask(t *testing.T) {
 	// Execute close command.
 	if cmd != nil {
 		closeMsg := cmd()
-		updated, _ = m.Update(closeMsg)
+		updated, cmd = m.Update(closeMsg)
 		m = updated.(watchModel)
 	}
 
-	// Verify subtask was closed.
+	// Verify subtask was closed in DB.
 	closed, err := db.GetTask(ws, child.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -860,6 +860,88 @@ func TestDetailModeCloseSubtask(t *testing.T) {
 	// Should still be in detail view (not list).
 	if m.view != viewDetail {
 		t.Errorf("expected viewDetail after subtask close, got %d", m.view)
+	}
+
+	// Execute the refresh command (loadDetail triggered by subtaskClosedMsg).
+	if cmd != nil {
+		refreshMsg := cmd()
+		updated, _ = m.Update(refreshMsg)
+		m = updated.(watchModel)
+	}
+
+	// Verify detail was refreshed with updated subtask status.
+	if m.detail == nil {
+		t.Fatal("expected detail to be refreshed")
+	}
+	if len(m.detail.Subtasks) != 1 {
+		t.Fatalf("expected 1 subtask, got %d", len(m.detail.Subtasks))
+	}
+	if m.detail.Subtasks[0].Status != StatusDone {
+		t.Errorf("expected refreshed subtask status done, got %s", m.detail.Subtasks[0].Status)
+	}
+}
+
+func TestDetailModeCloseBlockedSubtask(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := db.CreateTask(ws, "Child with grandchild", "", StatusInProgress, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Add a grandchild that's not done — blocks closing the child.
+	_, err = db.CreateTask(ws, "Incomplete grandchild", "", StatusTodo, PriorityMedium, "", child.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks and enter detail.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = m.Update(msg)
+		m = updated.(watchModel)
+	}
+
+	// Press c then y to try closing the child subtask.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(watchModel)
+
+	// Execute close command — should fail.
+	if cmd != nil {
+		closeMsg := cmd()
+		updated, _ = m.Update(closeMsg)
+		m = updated.(watchModel)
+	}
+
+	// Subtask should NOT be closed.
+	task, err := db.GetTask(ws, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status == StatusDone {
+		t.Error("expected subtask to remain open when grandchild is incomplete")
+	}
+
+	// Model should have an error.
+	if m.err == nil {
+		t.Error("expected error in model for incomplete grandchild")
+	}
+
+	// Error should be visible in the detail view.
+	view := m.View()
+	if !strings.Contains(view, "Error:") {
+		t.Error("expected error to be visible in detail view")
 	}
 }
 

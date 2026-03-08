@@ -166,7 +166,7 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskDetailMsg:
 		m.detail = msg.task
 		m.view = viewDetail
-		// Reset subtask cursor, but clamp if refreshing after a subtask close.
+		// Clamp subtask cursor if the subtask list shrank (e.g., after a close).
 		if m.subtaskCursor >= len(msg.task.Subtasks) {
 			m.subtaskCursor = max(0, len(msg.task.Subtasks)-1)
 		}
@@ -283,7 +283,7 @@ func (m watchModel) updateConfirmCloseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		}
 		task := m.tasks[m.cursor]
 		m.view = viewList
-		return m, m.closeTask(task.ID)
+		return m, m.doCloseTask(task.ID, taskClosedMsg{})
 	case "n", "esc":
 		m.view = viewList
 	}
@@ -305,40 +305,11 @@ func (m watchModel) updateConfirmCloseSubtaskView(msg tea.KeyMsg) (tea.Model, te
 		}
 		st := m.detail.Subtasks[m.subtaskCursor]
 		m.view = viewDetail
-		return m, m.closeSubtask(st.ID)
+		return m, m.doCloseTask(st.ID, subtaskClosedMsg{})
 	case "n", "esc":
 		m.view = viewDetail
 	}
 	return m, nil
-}
-
-func (m watchModel) closeSubtask(id string) tea.Cmd {
-	return func() tea.Msg {
-		task, err := m.db.GetTask(m.workspace, id)
-		if err != nil {
-			return errMsg{err: err}
-		}
-
-		if err := validateDependencies(m.db, m.workspace, id, "done"); err != nil {
-			return errMsg{err: err}
-		}
-
-		if err := validateSubtasksDone(m.db, m.workspace, id); err != nil {
-			return errMsg{err: err}
-		}
-
-		notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
-
-		updates := map[string]string{
-			"status":         string(StatusDone),
-			"progress_notes": notes,
-		}
-
-		if _, err := m.db.UpdateTask(m.workspace, id, updates, nil, nil, nil, nil); err != nil {
-			return errMsg{err: err}
-		}
-		return subtaskClosedMsg{}
-	}
 }
 
 func (m watchModel) loadDetail(id string) tea.Cmd {
@@ -351,7 +322,8 @@ func (m watchModel) loadDetail(id string) tea.Cmd {
 	}
 }
 
-func (m watchModel) closeTask(id string) tea.Cmd {
+// doCloseTask validates and closes a task, returning successMsg on success.
+func (m watchModel) doCloseTask(id string, successMsg tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		task, err := m.db.GetTask(m.workspace, id)
 		if err != nil {
@@ -376,7 +348,7 @@ func (m watchModel) closeTask(id string) tea.Cmd {
 		if _, err := m.db.UpdateTask(m.workspace, id, updates, nil, nil, nil, nil); err != nil {
 			return errMsg{err: err}
 		}
-		return taskClosedMsg{}
+		return successMsg
 	}
 }
 
@@ -529,7 +501,11 @@ func (m watchModel) renderDetail() string {
 		fmt.Fprintf(&b, "\n%s\n%s\n", labelStyle.Render("Progress Notes:"), t.ProgressNotes)
 	}
 
-	help := "\nesc/backspace: back"
+	b.WriteString("\n")
+	if m.err != nil {
+		b.WriteString(errorStyle.Render("Error: "+m.err.Error()) + "\n")
+	}
+	help := "esc/backspace: back"
 	if len(t.Subtasks) > 0 {
 		help += "  j/k: navigate subtasks  c: close subtask"
 	}
