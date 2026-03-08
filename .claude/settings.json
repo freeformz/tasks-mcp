@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./hooks/session-start.sh",
+            "command": "tasks-mcp hooks snapshot",
             "timeout": 10,
             "statusMessage": "Loading pending tasks..."
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./hooks/on-stop.sh",
+            "command": "tasks-mcp hooks check-active",
             "timeout": 10,
             "statusMessage": "Checking active tasks..."
           }

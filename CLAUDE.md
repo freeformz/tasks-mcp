@@ -10,7 +10,7 @@ Task management MCP server for AI agents, built in Go.
 - `models.go` — Task model, status/priority enums
 - `db.go` — SQLite database layer (CRUD, queries)
 - `migrations.go` — Versioned schema migrations (PRAGMA user_version)
-- `hooks/` — Claude Code hook scripts (session-start, on-stop)
+- `hooks.go` — Claude Code hook subcommands (snapshot, check-active)
 - `.claude/rules/taskqueue.md` — Rules instructing Claude how to use the MCP
 - `.claude/settings.json` — Hook configuration
 - `.goreleaser.yml` — GoReleaser config (builds, archives, MCPB bundles)
@@ -31,6 +31,8 @@ make vet                # go vet
 make lint               # vet + test
 make release-snapshot   # local goreleaser build (no publish)
 ```
+
+**Note:** If Claude Code hooks start failing (e.g. after code changes), run `go install .` to re-install the binary into your PATH.
 
 ## Development Workflow
 

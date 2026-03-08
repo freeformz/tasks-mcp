@@ -71,9 +71,8 @@ Multiple MCP server instances can share the same database safely via SQLite WAL 
 | Database Layer | SQLite with WAL mode, schema migration, CRUD operations |
 | Dependency Checker | Validates dependency completion and circular dependency detection |
 | Presence Tracker | Tracks active agents per workspace with heartbeat-based expiry |
-| CLI (Hook Support) | `pending` and `check-active` subcommands for hook scripts |
+| CLI (Hook Support) | `hooks` subcommand with nested hook commands (`hooks snapshot`, `hooks check-active`, etc.) |
 | CLI (Interactive) | `list`, `watch`, `close` subcommands for human interaction (bubbletea TUI) |
-| Hook Scripts | Shell scripts for SessionStart and Stop integration |
 | Rules File | Markdown instructions guiding agent behavior |
 
 ### Database
@@ -282,22 +281,24 @@ Track agent presence in a workspace. Supports registration, heartbeats, deregist
 
 #### SessionStart (startup | resume)
 
-Fires when a Claude Code session starts or resumes. The hook script:
+Fires when a Claude Code session starts or resumes. The `hooks snapshot` subcommand is invoked directly as the hook command:
 
-1. Reads JSON input from stdin to extract `cwd`
-2. Runs `tasks-mcp pending --workspace <cwd>`
-3. Outputs pending tasks as markdown to stdout (including assignee info)
-4. Claude receives this as injected context
+1. Reads JSON input from stdin to extract `cwd` and `agent_type` (if present)
+2. Queries the database for non-done tasks in the workspace
+3. If `agent_type` is present, outputs tasks assigned to this agent first
+4. Outputs task state summary to stdout
+5. Claude receives this as injected context
 
-**Effect:** The agent immediately knows what tasks are pending, who they're assigned to, and what the team is working on.
+**Effect:** The agent immediately knows what tasks exist and which are assigned to it. For subagents, assigned tasks appear first so they can start working immediately.
 
 #### Stop
 
-Fires when Claude is about to stop responding. The hook script:
+Fires when Claude is about to stop responding. The `hooks check-active` subcommand is invoked directly as the hook command:
 
-1. Reads JSON input from stdin to extract `cwd`
-2. Runs `tasks-mcp check-active --workspace <cwd>`
-3. If in-progress tasks exist, outputs a JSON decision to block stopping and exits with code 2
+1. Reads JSON input from stdin to extract `cwd` and `stop_hook_active`
+2. If `stop_hook_active` is true (re-fire), outputs `{"decision":"approve"}` and exits
+3. Queries the database for in-progress tasks in the workspace
+4. If in-progress tasks exist, outputs a JSON decision to block stopping and exits with code 2
 
 **Effect:** The agent is reminded to update task status before ending the session.
 
@@ -314,7 +315,13 @@ A rules file (`.claude/rules/taskqueue.md`) instructs the agent:
 
 ### MCP Server Instructions
 
-The MCP server provides inline instructions via the `WithInstructions` option, giving the agent baseline guidance even without the rules file installed.
+The MCP server provides inline instructions via the `WithInstructions` option. These instructions are re-sent with every MCP tool call, making them the most persistent mechanism for behavioral guidance — they survive context compaction without relying on hooks. The instructions include:
+
+- Task lifecycle guidance (create, update, add notes, mark done)
+- Mandatory task creation for multi-step work
+- Multi-agent coordination (assign tasks, automatic surfacing at startup)
+- Dependency enforcement rules
+- Stop hook behavior (don't delete tasks on re-fire)
 
 ## CLI
 
@@ -322,12 +329,12 @@ Built with [Cobra](https://github.com/spf13/cobra) and [Fang](https://github.com
 
 ### Hook Subcommands
 
-Used by Claude Code hook scripts. Not intended for direct human use.
+All hook commands live under `tasks-mcp hooks`. They read hook JSON from stdin and output the appropriate response to stdout. Not intended for direct human use.
 
 | Command | Purpose |
 |---------|---------|
-| `tasks-mcp pending --workspace <path>` | Print markdown summary of non-done tasks with assignee info |
-| `tasks-mcp check-active --workspace <path>` | Output JSON decision if in-progress tasks exist |
+| `tasks-mcp hooks snapshot` | Output task state summary for SessionStart (reads `cwd` and `agent_type` from stdin JSON) |
+| `tasks-mcp hooks check-active` | Output JSON decision if in-progress tasks exist (reads `cwd` and `stop_hook_active` from stdin JSON) |
 
 ### Human-Facing Subcommands
 
@@ -427,7 +434,6 @@ Marks a task as done from the command line.
 - **TUI**: github.com/charmbracelet/bubbletea, github.com/charmbracelet/bubbles, github.com/charmbracelet/lipgloss
 - **Transport**: stdio (stdin/stdout JSON) for MCP; terminal for CLI
 - **Platform**: macOS, Linux (anywhere Go compiles)
-- **Dependencies**: jq required for hook scripts
 - **Test coverage**: Minimum 70% statement coverage. CLI/TUI: test model logic and DB interactions, not view rendering
 
 ## Future Considerations
@@ -438,3 +444,105 @@ These are explicitly out of scope for the current version but may be considered 
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
+- **Hook-specific busy timeout** — Use a shorter SQLite busy timeout (e.g., 500ms) for hook subcommands to prevent UX hangs when the database is under contention
+
+## Future: Deep Hook Integration
+
+This section describes planned enhancements to hook integration. The P0 migration from shell scripts to Go subcommands is complete — hooks now run as `tasks-mcp hooks snapshot` and `tasks-mcp hooks check-active` directly, with identity-aware output and strengthened MCP server instructions. The layered approach is: MCP server instructions for persistent behavioral guidance, hooks for state injection and enforcement, and rules files for detailed judgment.
+
+### Design Principles
+
+1. **Layered guidance** — Behavioral guidance lives in MCP `WithInstructions` (persistent, re-sent with every tool call). Hooks handle state injection and enforcement. Rules files provide detailed judgment guidance. Each layer serves a distinct purpose
+2. **Compact context** — Injected context must be token-efficient; prefer structured summaries over verbose markdown
+3. **Fail loudly** — Hook failures should surface errors, not silently swallow them
+4. **No new languages** — All hook implementations must be Go subcommands compiled into the existing binary; no shell scripts, Python, Rust, or other runtimes
+
+### Migration: Shell Scripts to Go Subcommands (Completed)
+
+The former shell scripts (`hooks/session-start.sh`, `hooks/on-stop.sh`) and their `jq` dependency have been replaced by Go subcommands under `tasks-mcp hooks` that read stdin directly:
+
+- `hooks/session-start.sh` + `pending` → `tasks-mcp hooks snapshot`
+- `hooks/on-stop.sh` + `check-active` → `tasks-mcp hooks check-active`
+
+The `hooks/` directory, shell scripts, and old top-level `pending`/`check-active` commands have been removed. The `.claude/settings.json` hook configuration invokes the binary directly.
+
+### Hook Subcommand: `hooks snapshot` (Implemented)
+
+Replaces the former `pending` subcommand. Used by the SessionStart hook. Reads hook JSON from stdin to extract `cwd` and, if present, `agent_type` (the agent's name, provided by Claude Code for subagents).
+
+**Identity-aware output:** Claude Code includes `agent_type` in hook input for subagents and sessions started with `--agent`, but not for plain `claude` sessions. If `agent_type` is present, tasks assigned to that agent are shown first ("Tasks assigned to you"), followed by remaining workspace tasks for context. If absent, all workspace tasks are shown without assignment filtering. This gives subagents immediate awareness of their assignments at startup without requiring them to call `task_list` with an assignee filter.
+
+**Output includes:**
+
+- Tasks assigned to this agent (if `agent_type` is present, shown first)
+- Count of tasks by status (e.g., `2 in_progress, 3 todo, 1 blocked`)
+- All non-done tasks with titles, IDs, status, priority, and assignee
+- All notes on active tasks (last 5, as returned by the database)
+
+Note: Behavioral guidance (task creation, lifecycle, multi-agent coordination) is handled by the MCP server's `WithInstructions`, which persists across context compactions via MCP tool calls. The snapshot focuses on task state, not behavioral rules.
+
+**Database access:** If the database file does not exist, it is created (same as the MCP server). If the database is locked, the standard busy timeout applies (retry with backoff). If accessing the database errors, the error is returned.
+
+### Hook: Stop (Enhanced)
+
+**Purpose:** Extend the current stop hook with automatic progress notes.
+
+**Trigger:** When the agent is about to stop responding (existing hook).
+
+**Enhancements:**
+1. In addition to blocking on in-progress tasks, output a structured summary of what was done this session
+2. If in a git repository, optionally include files modified (from `git diff --name-only`); skip gracefully in non-git workspaces
+3. Suggest the agent add this summary as a note to active tasks before stopping
+
+**Rationale:** The current stop hook only blocks; it doesn't help the agent write useful notes. Providing a pre-formatted summary makes it easier for the agent to leave a useful trail.
+
+**Limitations:** The hook can only suggest — it cannot force the agent to call `task_add_note`. The git summary is best-effort and must not add significant latency to the stop hook, which fires after every response.
+
+**Dependencies:** `git` is optional (not required). The hook must detect whether the workspace is a git repo and skip the diff summary if not.
+
+### New MCP Tool: `task_claim`
+
+**Purpose:** Atomic task assignment for agent team coordination.
+
+**Behavior:** Sets the assignee on a task only if the task is currently unassigned. Returns success if claimed, error if already assigned to another agent. This prevents the race condition where two agents both read an unassigned task, both decide to claim it, and both set themselves as assignee.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| id | string | yes | Task ID |
+| assignee | string | yes | Agent name to assign |
+
+**Returns:** Updated task object if claimed successfully; error with current assignee if already taken.
+
+**Rationale:** The current `task_update` tool allows setting assignee unconditionally, which creates race conditions in team scenarios. An atomic claim operation is the minimum mechanism needed for reliable team coordination.
+
+### Implementation Priorities
+
+| Priority | Item | Effort | Impact |
+|----------|------|--------|--------|
+| ~~P0~~ | ~~Shell script → Go subcommand migration~~ | ~~Medium~~ | ~~Done~~ |
+| ~~P0~~ | ~~`hooks snapshot` subcommand~~ | ~~Medium~~ | ~~Done~~ |
+| ~~P0~~ | ~~`hooks check-active` subcommand~~ | ~~Low~~ | ~~Done~~ |
+| P1 | Enhanced Stop hook | Low | Better session-end behavior |
+| P1 | `task_claim` MCP tool | Low | Reliable team task assignment |
+| P3 | SubagentStart/Stop hooks | Medium | Agent team coordination (speculative — see below) |
+
+### Deferred Ideas
+
+These ideas were considered but deferred due to poor cost-benefit or feasibility concerns:
+
+- **Compact snapshot format:** A token-efficient variant of `hooks snapshot` that caps blocked/todo categories and truncates notes, for use cases where full output is too verbose (e.g., per-prompt injection). Add a `--format compact` flag when a consumer exists.
+
+- **UserPromptSubmit (state injection):** Injecting task state on every prompt. SessionStart already fires on `compact` events and re-injects task state, and behavioral guidance persists via MCP `WithInstructions` (re-sent with every tool call). Per-prompt state injection adds overhead on every message for a problem already solved by these two mechanisms. Revisit if agents are still losing track of tasks in practice, potentially with a caching approach (full injection on first prompt, condensed reminders after). Would use the compact snapshot format if implemented.
+
+- **PreToolUse nudge (Edit/Write):** Nudging agents to create tasks before file edits has a poor signal-to-noise ratio. The agent cannot distinguish trivial one-off edits from multi-step work, and the nudge fires at the worst moment (mid-execution). The rules file guidance "don't create tasks for trivial operations" contradicts an automatic nudge. Revisit only if a reliable heuristic for "significant work" emerges.
+
+- **PreCompact snapshot:** Writing task state to a temp file before compaction is redundant. SessionStart already fires on `compact` events (configured via `"matcher": "startup|resume|compact"`). A file-based caching layer adds staleness risk and filesystem state management without meaningful benefit over querying the database directly.
+
+- **SubagentStart/SubagentStop hooks:** Automatic presence registration and orphan detection are valuable concepts, but these hook events may not be available in all Claude Code versions. Implement only after confirming hook event availability. The orphaned-task detection (SubagentStop) is higher value than the registration (SubagentStart) — if only one is built, prioritize orphan detection.
+
+### Constraints and Risks
+
+- **Hook latency:** Each hook adds overhead. The `hooks snapshot` subcommand must complete in under 100ms to avoid perceptible delay. SQLite queries on the small task database should be well within this budget.
+- **Testing:** Unit tests should cover the hook subcommands (especially `hooks snapshot` output and identity-aware filtering). Since hooks are Go subcommands, they can be tested with standard Go test patterns using stdin/stdout pipes.

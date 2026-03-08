@@ -1,12 +1,12 @@
 ## Claude Code Hooks
 
-Hook scripts live in `hooks/` and are configured in `.claude/settings.json`.
+Hooks are implemented as Go subcommands in the `tasks-mcp` binary and configured in `.claude/settings.json`. Each subcommand reads hook JSON from stdin and outputs the appropriate response to stdout.
 
 ### Hook output JSON schema
 
 When a hook outputs JSON to stdout, the `decision` field must be `"approve"` or `"block"` — not `"allow"` or other values. Invalid values cause a JSON validation error in Claude Code.
 
-### Stop hook (`hooks/on-stop.sh`)
+### Stop hook (`tasks-mcp hooks check-active`)
 
 - Uses `stop_hook_active` from stdin JSON to detect re-fires and break infinite loops
 - On re-fire (`stop_hook_active: true`): emit `{"decision":"approve"}` and exit 0
