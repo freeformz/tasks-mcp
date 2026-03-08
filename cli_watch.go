@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	watchHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	watchDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	watchDoneStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
+	watchHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+	watchDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	watchDoneStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
+	watchWarningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 )
 
 // tickMsg signals that the poll interval has elapsed and the task should be refreshed.
@@ -95,7 +96,7 @@ func (m watchModel) View() string {
 	b.WriteString(watchHeaderStyle.Render("Watching: "+m.task.Title) + "\n")
 	b.WriteString(watchDimStyle.Render("ID: "+m.task.ID) + "\n")
 	if m.workspaceWarning != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render(m.workspaceWarning) + "\n")
+		b.WriteString(watchWarningStyle.Render(m.workspaceWarning) + "\n")
 	}
 	b.WriteString("\n")
 

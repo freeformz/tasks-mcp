@@ -150,11 +150,20 @@ func (d *DB) GetTaskGlobal(id string) (*Task, error) {
 	return task, nil
 }
 
+// escapeLikePattern escapes special characters in SQLite LIKE patterns
+// so that the input is treated literally. Uses '\' as the escape character.
+func escapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // FindTaskBySuffixGlobal finds a task whose ID ends with the given suffix across all workspaces.
 func (d *DB) FindTaskBySuffixGlobal(suffix string) (*Task, error) {
 	rows, err := d.db.Query(
-		`SELECT `+taskColumns+` FROM tasks WHERE id LIKE ?`,
-		"%"+suffix,
+		`SELECT `+taskColumns+` FROM tasks WHERE id LIKE ? ESCAPE '\'`,
+		"%"+escapeLikePattern(suffix),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find by suffix: %w", err)

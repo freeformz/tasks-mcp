@@ -35,13 +35,21 @@ func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 }
 
 // ResolveTaskIDGlobal resolves a task ID across all workspaces.
-// It tries workspace-scoped resolution first, then falls back to global lookup.
+// It tries workspace-scoped resolution first, then falls back to global lookup
+// only when the task is definitively not found (not for ambiguous matches or other errors).
 // Returns the task and a warning message if the task was found in a different workspace.
 func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error) {
 	// Try workspace-scoped first.
 	task, err := ResolveTaskID(db, workspace, input)
 	if err == nil {
 		return task, "", nil
+	}
+
+	// Only fall back to global if the error indicates "not found".
+	// Ambiguous matches and other errors should be returned directly.
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "ambiguous") {
+		return nil, "", err
 	}
 
 	// Fall back to global lookup.
@@ -64,8 +72,8 @@ func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error)
 // Returns an error if zero or multiple tasks match.
 func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
 	rows, err := d.db.Query(
-		`SELECT `+taskColumns+` FROM tasks WHERE workspace = ? AND id LIKE ?`,
-		workspace, "%"+suffix,
+		`SELECT `+taskColumns+` FROM tasks WHERE workspace = ? AND id LIKE ? ESCAPE '\'`,
+		workspace, "%"+escapeLikePattern(suffix),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find by suffix: %w", err)
@@ -155,8 +163,12 @@ func shortenWorkspace(workspace string) string {
 	if err != nil {
 		return workspace
 	}
-	if strings.HasPrefix(workspace, home) {
-		return "~" + workspace[len(home):]
+	if workspace == home {
+		return "~"
+	}
+	prefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(workspace, prefix) {
+		return "~" + string(os.PathSeparator) + workspace[len(prefix):]
 	}
 	return workspace
 }
