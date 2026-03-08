@@ -22,14 +22,15 @@ type tickMsg time.Time
 
 // watchModel is the bubbletea model for the watch command.
 type watchModel struct {
-	db        *DB
-	workspace string
-	taskID    string
-	task      *Task
-	interval  time.Duration
-	noExit    bool
-	allDone   bool
-	err       error
+	db               *DB
+	workspace        string
+	taskID           string
+	task             *Task
+	interval         time.Duration
+	noExit           bool
+	allDone          bool
+	err              error
+	workspaceWarning string
 }
 
 func tickCmd(d time.Duration) tea.Cmd {
@@ -92,7 +93,11 @@ func (m watchModel) View() string {
 	var b strings.Builder
 
 	b.WriteString(watchHeaderStyle.Render("Watching: "+m.task.Title) + "\n")
-	b.WriteString(watchDimStyle.Render("ID: "+m.task.ID) + "\n\n")
+	b.WriteString(watchDimStyle.Render("ID: "+m.task.ID) + "\n")
+	if m.workspaceWarning != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render(m.workspaceWarning) + "\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString(renderTree(m.task, "", true))
 
@@ -195,19 +200,26 @@ func watchCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			task, err := ResolveTaskID(db, workspace, taskInput)
+			task, warning, err := ResolveTaskIDGlobal(db, workspace, taskInput)
 			if err != nil {
 				return err
 			}
 
+			// Use the task's actual workspace for polling.
+			taskWorkspace := workspace
+			if task.Workspace != workspace {
+				taskWorkspace = task.Workspace
+			}
+
 			m := watchModel{
-				db:        db,
-				workspace: workspace,
-				taskID:    task.ID,
-				task:      task,
-				interval:  dur,
-				noExit:    noExit,
-				allDone:   allTasksDone(task),
+				db:               db,
+				workspace:        taskWorkspace,
+				taskID:           task.ID,
+				task:             task,
+				interval:         dur,
+				noExit:           noExit,
+				allDone:          allTasksDone(task),
+				workspaceWarning: warning,
 			}
 
 			p := tea.NewProgram(m)

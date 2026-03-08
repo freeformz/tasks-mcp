@@ -319,7 +319,7 @@ Interactive CLI for developers to monitor agent work and manage tasks. Built wit
 
 #### `tasks-mcp list`
 
-Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time.
+Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time. When `--all` is used, includes a Workspace column and shows tasks from all workspaces, sorted by workspace then priority.
 
 - Excludes done tasks by default
 - Shows top-level tasks only by default
@@ -330,6 +330,7 @@ Static table of open tasks in the current workspace. Columns: ID (short prefix),
 | Flag | Description |
 |------|-------------|
 | `-i` | Interactive TUI mode |
+| `-a`, `--all` | Show tasks across all workspaces. Adds a Workspace column. Mutually exclusive with `--workspace`. Not supported in interactive mode (`-i`) |
 | `--subtasks` | Show subtasks nested under parent tasks |
 | `--status <status>` | Filter by status |
 | `--assignee <name>` | Filter by assignee |
@@ -364,7 +365,7 @@ Live-updating TUI that displays a task and its full subtask tree. Polls the data
 
 **Behavior:**
 
-- Task ID is resolved within the selected workspace (current working directory or `--workspace`)
+- Task ID is resolved across all workspaces, not just the current one. If the task belongs to a different workspace, the TUI displays a warning: `⚠ Task is from workspace: <path>`
 - If the task has no subtasks, shows the single task and waits for it to complete (subtasks may be added later by agents)
 - Tree updates as agents add subtasks, change status, or append progress notes
 - Displays a summary when all tasks in the tree reach `done`
@@ -406,7 +407,6 @@ Marks a task as done from the command line.
 These are explicitly out of scope for the current version but may be considered later:
 
 - **Task templates** — Pre-defined task structures for common workflows
-- **Cross-workspace views** — `list -a`/`--all` flag to show tasks from all workspaces with a Workspace column (mutually exclusive with `--workspace`, not supported in `-i` mode); `watch` cross-workspace ID resolution with a warning when the task belongs to a different workspace
 - **Consolidate `list -i` and `watch`** — Both serve the same purpose of interactively viewing tasks; merge them into `watch` as the single interactive TUI entry point
 - **Close subtasks from TUI** — Allow closing individual subtasks from within `list -i` / `watch`, not just top-level tasks
 - **Task archival** — Move old completed tasks out of the active database

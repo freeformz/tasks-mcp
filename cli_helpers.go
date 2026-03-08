@@ -34,6 +34,32 @@ func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 	return task, nil
 }
 
+// ResolveTaskIDGlobal resolves a task ID across all workspaces.
+// It tries workspace-scoped resolution first, then falls back to global lookup.
+// Returns the task and a warning message if the task was found in a different workspace.
+func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error) {
+	// Try workspace-scoped first.
+	task, err := ResolveTaskID(db, workspace, input)
+	if err == nil {
+		return task, "", nil
+	}
+
+	// Fall back to global lookup.
+	task, err = db.GetTaskGlobal(input)
+	if err == nil {
+		warning := fmt.Sprintf("⚠ Task is from workspace: %s", task.Workspace)
+		return task, warning, nil
+	}
+
+	task, err = db.FindTaskBySuffixGlobal(input)
+	if err != nil {
+		return nil, "", fmt.Errorf("could not resolve task ID %q in any workspace: %w", input, err)
+	}
+
+	warning := fmt.Sprintf("⚠ Task is from workspace: %s", task.Workspace)
+	return task, warning, nil
+}
+
 // FindTaskBySuffix finds a task whose ID ends with the given suffix.
 // Returns an error if zero or multiple tasks match.
 func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
@@ -121,6 +147,18 @@ func appendProgressNote(existing, newNote string) string {
 		return existing + "\n" + newNote
 	}
 	return newNote
+}
+
+// shortenWorkspace shortens a workspace path for display by replacing the home directory with ~.
+func shortenWorkspace(workspace string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return workspace
+	}
+	if strings.HasPrefix(workspace, home) {
+		return "~" + workspace[len(home):]
+	}
+	return workspace
 }
 
 // resolveWorkspace returns the given workspace if non-empty, or the current working directory.

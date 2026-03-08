@@ -54,11 +54,12 @@ type Task struct {
 }
 
 type ListFilter struct {
-	Status      string
-	Tag         string
-	ParentID    string
-	Assignee    string
-	IncludeDone bool
+	Status        string
+	Tag           string
+	ParentID      string
+	Assignee      string
+	IncludeDone   bool
+	AllWorkspaces bool
 }
 
 type AgentPresence struct {

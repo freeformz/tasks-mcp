@@ -14,12 +14,13 @@ import (
 
 func listCmd() *cobra.Command {
 	var (
-		interactive bool
-		showSubtasks bool
-		includeDone  bool
-		statusFilter string
+		interactive    bool
+		showSubtasks   bool
+		includeDone    bool
+		statusFilter   string
 		assigneeFilter string
-		workspace    string
+		workspace      string
+		allWorkspaces  bool
 	)
 
 	cmd := &cobra.Command{
@@ -27,6 +28,13 @@ func listCmd() *cobra.Command {
 		Short: "List tasks in current workspace",
 		Long:  "Static table of open tasks. Use -i for interactive TUI mode with navigation, task details, and closing.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if allWorkspaces && workspace != "" {
+				return fmt.Errorf("--all and --workspace are mutually exclusive")
+			}
+			if allWorkspaces && interactive {
+				return fmt.Errorf("--all is not supported in interactive mode (-i)")
+			}
+
 			var err error
 			workspace, err = resolveWorkspace(workspace)
 			if err != nil {
@@ -44,9 +52,10 @@ func listCmd() *cobra.Command {
 			}
 
 			filter := ListFilter{
-				Status:      statusFilter,
-				Assignee:    assigneeFilter,
-				IncludeDone: includeDone,
+				Status:        statusFilter,
+				Assignee:      assigneeFilter,
+				IncludeDone:   includeDone,
+				AllWorkspaces: allWorkspaces,
 			}
 
 			tasks, err := db.ListTasks(workspace, filter)
@@ -59,7 +68,7 @@ func listCmd() *cobra.Command {
 				return nil
 			}
 
-			printTaskTable(os.Stdout, tasks, showSubtasks, db, workspace)
+			printTaskTable(os.Stdout, tasks, showSubtasks, allWorkspaces, db, workspace)
 			return nil
 		},
 	}
@@ -70,24 +79,31 @@ func listCmd() *cobra.Command {
 	cmd.Flags().StringVar(&statusFilter, "status", "", "filter by status (todo, in_progress, done, blocked)")
 	cmd.Flags().StringVar(&assigneeFilter, "assignee", "", "filter by assignee name")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "override workspace (default: cwd)")
+	cmd.Flags().BoolVarP(&allWorkspaces, "all", "a", false, "show tasks across all workspaces")
+	cmd.MarkFlagsMutuallyExclusive("all", "workspace")
 
 	return cmd
 }
 
 // printTaskTable writes a formatted task table to the given writer.
-func printTaskTable(out *os.File, tasks []Task, showSubtasks bool, db *DB, workspace string) {
+func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool, db *DB, workspace string) {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tPRIORITY\tTITLE\tASSIGNEE\tTAGS")
+	if showWorkspace {
+		fmt.Fprintln(w, "WORKSPACE\tID\tSTATUS\tPRIORITY\tTITLE\tASSIGNEE\tTAGS")
+	} else {
+		fmt.Fprintln(w, "ID\tSTATUS\tPRIORITY\tTITLE\tASSIGNEE\tTAGS")
+	}
 
 	for _, t := range tasks {
-		printTaskRow(w, t, "")
+		printTaskRow(w, t, "", showWorkspace)
 		if showSubtasks {
-			subtasks, err := db.ListTasks(workspace, ListFilter{ParentID: t.ID, IncludeDone: true})
+			subtaskFilter := ListFilter{ParentID: t.ID, IncludeDone: true, AllWorkspaces: showWorkspace}
+			subtasks, err := db.ListTasks(workspace, subtaskFilter)
 			if err != nil {
 				log.Fatal(err)
 			}
 			for _, st := range subtasks {
-				printTaskRow(w, st, "  ")
+				printTaskRow(w, st, "  ", showWorkspace)
 			}
 		}
 	}
@@ -95,17 +111,30 @@ func printTaskTable(out *os.File, tasks []Task, showSubtasks bool, db *DB, works
 	w.Flush()
 }
 
-func printTaskRow(w *tabwriter.Writer, t Task, prefix string) {
+func printTaskRow(w *tabwriter.Writer, t Task, prefix string, showWorkspace bool) {
 	tags := strings.Join(t.Tags, ",")
-	fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%s\n",
-		prefix,
-		ShortID(t.ID),
-		StyledStatus(t.Status),
-		StyledPriority(t.Priority),
-		t.Title,
-		t.Assignee,
-		tags,
-	)
+	if showWorkspace {
+		fmt.Fprintf(w, "%s\t%s%s\t%s\t%s\t%s\t%s\t%s\n",
+			shortenWorkspace(t.Workspace),
+			prefix,
+			ShortID(t.ID),
+			StyledStatus(t.Status),
+			StyledPriority(t.Priority),
+			t.Title,
+			t.Assignee,
+			tags,
+		)
+	} else {
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%s\n",
+			prefix,
+			ShortID(t.ID),
+			StyledStatus(t.Status),
+			StyledPriority(t.Priority),
+			t.Title,
+			t.Assignee,
+			tags,
+		)
+	}
 }
 
 // --- Interactive TUI mode ---
