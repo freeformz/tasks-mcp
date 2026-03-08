@@ -467,11 +467,11 @@ func (d *DB) enrichTaskMetadata(t *Task) error {
 }
 
 // TaskExists checks if a task exists in a workspace.
+// Returns ErrTaskNotFound (wrapped) if the task does not exist.
 func (d *DB) TaskExists(workspace, id string) error {
 	var exists bool
-	err := d.db.QueryRow(`SELECT 1 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("task not found: %w", err)
+	if err := d.db.QueryRow(`SELECT 1 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace).Scan(&exists); err != nil {
+		return fmt.Errorf("task %s not found in workspace: %w", id, ErrTaskNotFound)
 	}
 	return nil
 }
@@ -644,6 +644,9 @@ func (d *DB) ListActivePresence(workspace string, staleThreshold time.Duration) 
 	return results, rows.Err()
 }
 
+// getSubtasks loads subtasks for a parent task, including their metadata (tags, deps, notes).
+// This results in per-subtask queries, which is acceptable for the typical task tree size
+// (< 20 subtasks). For larger trees, consider batch-fetching metadata.
 func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 	rows, err := d.db.Query(
 		`SELECT `+taskColumns+` FROM tasks WHERE parent_id = ? AND workspace = ? ORDER BY created_at`, parentID, workspace,
