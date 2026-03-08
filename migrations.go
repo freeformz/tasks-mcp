@@ -9,6 +9,7 @@ var migrations = []func(*DB) error{
 	migrateV1InitialSchema,
 	migrateV2AddAssignee,
 	migrateV3AgentPresence,
+	migrateV4TaskNotes,
 }
 
 func (d *DB) migrate() error {
@@ -84,6 +85,39 @@ func migrateV2AddAssignee(d *DB) error {
 
 	if _, err := d.db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workspace_assignee ON tasks(workspace, assignee)`); err != nil {
 		return fmt.Errorf("create assignee index: %w", err)
+	}
+
+	return nil
+}
+
+// migrateV4TaskNotes creates the task_notes table for structured note storage
+// and drops the progress_notes column from the tasks table.
+func migrateV4TaskNotes(d *DB) error {
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS task_notes (
+			id TEXT PRIMARY KEY,
+			task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			content TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_task_notes_task_id_created ON task_notes(task_id, created_at DESC);
+	`)
+	if err != nil {
+		return fmt.Errorf("create task_notes table: %w", err)
+	}
+
+	// Drop the old progress_notes column.
+	var hasColumn bool
+	if err := d.db.QueryRow(
+		"SELECT COUNT(*) > 0 FROM pragma_table_info('tasks') WHERE name = 'progress_notes'",
+	).Scan(&hasColumn); err != nil {
+		return fmt.Errorf("check progress_notes column: %w", err)
+	}
+	if hasColumn {
+		if _, err := d.db.Exec(`ALTER TABLE tasks DROP COLUMN progress_notes`); err != nil {
+			return fmt.Errorf("drop progress_notes column: %w", err)
+		}
 	}
 
 	return nil

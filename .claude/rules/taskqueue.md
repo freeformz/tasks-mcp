@@ -13,9 +13,9 @@ You have access to a task management MCP server for tracking multi-step work acr
 
 - **Start of session**: Call `task_list` to see pending work. The SessionStart hook may have already shown pending tasks in context.
 - **Starting work**: Create tasks with `task_create` or update existing ones to `in_progress`
-- **Making progress**: Use `task_update` with `progress_note` to log what was done
-- **Blocked**: Set status to `blocked` with a progress note explaining why
-- **Completing work**: Set status to `done` with a final progress note
+- **Making progress**: Use `task_add_note` to log what was done
+- **Blocked**: Set status to `blocked` and add a note explaining why via `task_add_note`
+- **Completing work**: Set status to `done` and add a final note via `task_add_note`
 - **Dependencies**: Use `depends_on` when creating tasks that require other tasks to finish first. You cannot start or complete a task until all its dependencies are done.
 
 ### Agent teams
@@ -36,7 +36,13 @@ When working as part of an agent team:
 - **tags**: Comma-separated labels for categorization (e.g., "bug,frontend,urgent")
 - **depends_on**: Comma-separated task IDs that must complete before this task
 - **parent_id**: Create subtasks by referencing a parent task
-- **progress_note**: Timestamped notes appended to the task log
+
+### Notes
+
+- Use `task_add_note` to add timestamped notes to any task
+- Notes are append-only and cannot be edited or deleted
+- Both `task_list` and `task_get` return the last 5 notes and total note count
+- Use `max_notes` parameter on `task_add_note` to control how many notes are returned
 
 ### Dependency enforcement
 
@@ -50,12 +56,12 @@ The Stop hook fires whenever you finish responding, not only when the session en
 
 - **Do NOT delete tasks** in response to the stop hook — it is a reminder, not an instruction to clean up
 - If the user is still actively chatting, simply acknowledge the reminder and continue working
-- Only update task status (to `done`, `blocked`, or `todo` with a progress note) when the session is genuinely ending and you are done with the work
+- Only update task status (to `done`, `blocked`, or `todo`) when the session is genuinely ending and you are done with the work
 
 ### Best practices
 
 - Keep task titles short and descriptive
-- Use progress notes to leave a trail for future sessions
+- Use notes to leave a trail for future sessions
 - Update task status before ending a session
 - Use tags consistently across tasks (e.g., "bug", "feature", "refactor", "test")
 - Don't create tasks for trivial one-off operations

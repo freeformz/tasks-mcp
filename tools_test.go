@@ -211,11 +211,10 @@ func TestHandleTaskUpdate(t *testing.T) {
 	json.Unmarshal([]byte(text), &created)
 
 	result, err := updateHandler(t.Context(), makeRequest(map[string]any{
-		"id":            created.ID,
-		"title":         "Updated",
-		"status":        "in_progress",
-		"assignee":      "agent-x",
-		"progress_note": "started work",
+		"id":       created.ID,
+		"title":    "Updated",
+		"status":   "in_progress",
+		"assignee": "agent-x",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -237,8 +236,63 @@ func TestHandleTaskUpdate(t *testing.T) {
 	if updated.Assignee != "agent-x" {
 		t.Errorf("assignee = %q, want agent-x", updated.Assignee)
 	}
-	if updated.ProgressNotes == "" {
-		t.Error("expected progress notes")
+}
+
+func TestHandleTaskAddNote(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	createHandler := handleTaskCreate(db, ws)
+	addNoteHandler := handleTaskAddNote(db, ws)
+
+	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Note Test"}))
+	var created Task
+	text := createResult.Content[0].(mcp.TextContent).Text
+	json.Unmarshal([]byte(text), &created)
+
+	result, err := addNoteHandler(t.Context(), makeRequest(map[string]any{
+		"id":      created.ID,
+		"content": "first note",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %v", result.Content)
+	}
+
+	var updated Task
+	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &updated)
+
+	if updated.NoteCount != 1 {
+		t.Errorf("note_count = %d, want 1", updated.NoteCount)
+	}
+	if len(updated.Notes) != 1 {
+		t.Fatalf("notes len = %d, want 1", len(updated.Notes))
+	}
+	if updated.Notes[0].Content != "first note" {
+		t.Errorf("note content = %q, want 'first note'", updated.Notes[0].Content)
+	}
+}
+
+func TestHandleTaskAddNoteMissingFields(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleTaskAddNote(db, ws)
+
+	// Missing id.
+	result, err := handler(t.Context(), makeRequest(map[string]any{"content": "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing id")
+	}
+
+	// Missing content.
+	result, err = handler(t.Context(), makeRequest(map[string]any{"id": "fake"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing content")
 	}
 }
 

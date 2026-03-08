@@ -663,8 +663,18 @@ func TestListModeCloseTask(t *testing.T) {
 	if closed.Status != StatusDone {
 		t.Errorf("expected task status done, got %s", closed.Status)
 	}
-	if !strings.Contains(closed.ProgressNotes, "Closed manually via CLI") {
-		t.Error("expected progress note about CLI closure")
+	if closed.NoteCount == 0 {
+		t.Error("expected at least one note")
+	}
+	hasCliNote := false
+	for _, n := range closed.Notes {
+		if n.Content == "Closed manually via CLI" {
+			hasCliNote = true
+			break
+		}
+	}
+	if !hasCliNote {
+		t.Error("expected note about CLI closure")
 	}
 }
 
@@ -853,8 +863,18 @@ func TestDetailModeCloseSubtask(t *testing.T) {
 	if closed.Status != StatusDone {
 		t.Errorf("expected subtask status done, got %s", closed.Status)
 	}
-	if !strings.Contains(closed.ProgressNotes, "Closed manually via CLI") {
-		t.Error("expected progress note about CLI closure")
+	if closed.NoteCount == 0 {
+		t.Error("expected at least one note")
+	}
+	hasCliNote := false
+	for _, n := range closed.Notes {
+		if n.Content == "Closed manually via CLI" {
+			hasCliNote = true
+			break
+		}
+	}
+	if !hasCliNote {
+		t.Error("expected note about CLI closure on subtask")
 	}
 
 	// Should still be in detail view (not list).

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,13 +45,13 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
-const taskColumns = `id, workspace, title, description, status, priority, assignee, parent_id, progress_notes, created_at, updated_at`
+const taskColumns = `id, workspace, title, description, status, priority, assignee, parent_id, created_at, updated_at`
 
 func scanTask(scanner interface{ Scan(...any) error }) (*Task, error) {
 	t := &Task{}
 	var parentID sql.NullString
 	err := scanner.Scan(&t.ID, &t.Workspace, &t.Title, &t.Description, &t.Status, &t.Priority,
-		&t.Assignee, &parentID, &t.ProgressNotes, &t.CreatedAt, &t.UpdatedAt)
+		&t.Assignee, &parentID, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +440,119 @@ func (d *DB) enrichTaskMetadata(t *Task) error {
 		return fmt.Errorf("get dependencies: %w", err)
 	}
 	t.DependsOn = deps
+
+	// Fetch last 5 notes and total count in a single query using a window function.
+	noteRows, err := d.db.Query(
+		`SELECT id, task_id, content, created_at, COUNT(*) OVER () AS total_count
+		 FROM task_notes WHERE task_id = ? ORDER BY created_at DESC LIMIT 5`, t.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("get notes: %w", err)
+	}
+	defer noteRows.Close()
+
+	for noteRows.Next() {
+		var note TaskNote
+		var totalCount int
+		if err := noteRows.Scan(&note.ID, &note.TaskID, &note.Content, &note.CreatedAt, &totalCount); err != nil {
+			return fmt.Errorf("scan note: %w", err)
+		}
+		t.Notes = append(t.Notes, note)
+		t.NoteCount = totalCount
+	}
+	if err := noteRows.Err(); err != nil {
+		return fmt.Errorf("iterate notes: %w", err)
+	}
+
 	return nil
+}
+
+// TaskExists checks if a task exists in a workspace.
+// Returns ErrTaskNotFound (wrapped) if the task does not exist.
+func (d *DB) TaskExists(workspace, id string) error {
+	var n int
+	err := d.db.QueryRow(`SELECT 1 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace).Scan(&n)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task %s: %w", id, ErrTaskNotFound)
+		}
+		return fmt.Errorf("check task exists: %w", err)
+	}
+	return nil
+}
+
+// AddNote adds a timestamped note to a task.
+func (d *DB) AddNote(taskID, content string) (*TaskNote, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx for add note: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`INSERT INTO task_notes (id, task_id, content, created_at) VALUES (?, ?, ?, ?)`,
+		id, taskID, content, now,
+	); err != nil {
+		return nil, fmt.Errorf("add note: %w", err)
+	}
+
+	// Touch the task's updated_at.
+	res, err := tx.Exec(`UPDATE tasks SET updated_at = ? WHERE id = ?`, now, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("update task timestamp: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("update task timestamp rows affected: %w", err)
+	}
+	if n == 0 {
+		return nil, fmt.Errorf("add note: %w", ErrTaskNotFound)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit add note: %w", err)
+	}
+	return &TaskNote{ID: id, TaskID: taskID, Content: content, CreatedAt: now}, nil
+}
+
+// GetNotes returns the most recent notes for a task, ordered newest first, limited to n.
+// If n <= 0, all notes are returned.
+func (d *DB) GetNotes(taskID string, n int) ([]TaskNote, error) {
+	query := `SELECT id, task_id, content, created_at FROM task_notes WHERE task_id = ? ORDER BY created_at DESC`
+	var args []any
+	args = append(args, taskID)
+	if n > 0 {
+		query += ` LIMIT ?`
+		args = append(args, n)
+	}
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get notes: %w", err)
+	}
+	defer rows.Close()
+
+	var notes []TaskNote
+	for rows.Next() {
+		var note TaskNote
+		if err := rows.Scan(&note.ID, &note.TaskID, &note.Content, &note.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan note: %w", err)
+		}
+		notes = append(notes, note)
+	}
+	return notes, rows.Err()
+}
+
+// GetNoteCount returns the total number of notes for a task.
+func (d *DB) GetNoteCount(taskID string) (int, error) {
+	var count int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM task_notes WHERE task_id = ?`, taskID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get note count: %w", err)
+	}
+	return count, nil
 }
 
 // queryStrings executes a query returning a single string column and collects the results.
@@ -536,6 +649,9 @@ func (d *DB) ListActivePresence(workspace string, staleThreshold time.Duration) 
 	return results, rows.Err()
 }
 
+// getSubtasks loads subtasks for a parent task, including their metadata (tags, deps, notes).
+// This results in per-subtask queries, which is acceptable for the typical task tree size
+// (< 20 subtasks). For larger trees, consider batch-fetching metadata.
 func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 	rows, err := d.db.Query(
 		`SELECT `+taskColumns+` FROM tasks WHERE parent_id = ? AND workspace = ? ORDER BY created_at`, parentID, workspace,
@@ -552,9 +668,8 @@ func (d *DB) getSubtasks(workspace, parentID string) ([]Task, error) {
 			return nil, err
 		}
 
-		t.Tags, err = d.queryStrings(`SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag`, t.ID)
-		if err != nil {
-			return nil, fmt.Errorf("get subtask tags: %w", err)
+		if err := d.enrichTaskMetadata(t); err != nil {
+			return nil, fmt.Errorf("enrich subtask: %w", err)
 		}
 		subtasks = append(subtasks, *t)
 	}
