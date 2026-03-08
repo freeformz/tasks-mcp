@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -356,6 +357,106 @@ func TestListTasksAllWorkspacesOrdering(t *testing.T) {
 	}
 	if tasks[3].Workspace != ws2 || tasks[3].Title != "Beta low" {
 		t.Errorf("tasks[3]: got %s/%s, want beta/Beta low", tasks[3].Workspace, tasks[3].Title)
+	}
+}
+
+func TestFindTaskBySuffix(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Suffix Test", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Use the last 12 chars (final UUID segment) as suffix.
+	suffix := ShortID(task.ID)
+
+	found, err := db.FindTaskBySuffix(testWorkspace, suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID != task.ID {
+		t.Errorf("got ID %q, want %q", found.ID, task.ID)
+	}
+}
+
+func TestFindTaskBySuffix_NotFound(t *testing.T) {
+	db := testDB(t)
+
+	_, err := db.FindTaskBySuffix(testWorkspace, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent suffix")
+	}
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected ErrTaskNotFound, got: %v", err)
+	}
+}
+
+func TestFindTaskBySuffix_WrongWorkspace(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "WS Test", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.FindTaskBySuffix("/other/workspace", ShortID(task.ID))
+	if err == nil {
+		t.Fatal("expected error for wrong workspace")
+	}
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected ErrTaskNotFound, got: %v", err)
+	}
+}
+
+func TestFindTaskBySuffix_LikeMetachars(t *testing.T) {
+	db := testDB(t)
+
+	// Create a task so the DB isn't empty.
+	_, err := db.CreateTask(testWorkspace, "Metachar Test", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Suffixes containing LIKE metacharacters should be treated literally,
+	// not as wildcards. These should not match anything.
+	for _, meta := range []string{"%", "_", "%%", "_%"} {
+		_, err := db.FindTaskBySuffix(testWorkspace, meta)
+		if err == nil {
+			t.Errorf("suffix %q: expected error, got match", meta)
+		}
+		if !errors.Is(err, ErrTaskNotFound) {
+			t.Errorf("suffix %q: expected ErrTaskNotFound, got: %v", meta, err)
+		}
+	}
+}
+
+func TestFindTaskBySuffixGlobal(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask("/ws/one", "Global Test", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := db.FindTaskBySuffixGlobal(ShortID(task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID != task.ID {
+		t.Errorf("got ID %q, want %q", found.ID, task.ID)
+	}
+}
+
+func TestFindTaskBySuffixGlobal_NotFound(t *testing.T) {
+	db := testDB(t)
+
+	_, err := db.FindTaskBySuffixGlobal("nonexistent")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected ErrTaskNotFound, got: %v", err)
 	}
 }
 

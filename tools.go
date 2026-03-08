@@ -324,19 +324,24 @@ func formatDependencyError(targetStatus string, incomplete []Task) string {
 	return b.String()
 }
 
+// trimSlice returns a new slice with each element trimmed of whitespace,
+// dropping any elements that become empty.
+func trimSlice(items []string) []string {
+	var result []string
+	for _, s := range items {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 func splitCSV(s string) []string {
 	if s == "" {
 		return nil
 	}
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
+	return trimSlice(strings.Split(s, ","))
 }
 
 func errResult(msg string) *mcp.CallToolResult {
