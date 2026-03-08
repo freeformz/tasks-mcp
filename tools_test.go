@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -335,6 +336,56 @@ func TestHandleTaskUpdateDependencyEnforcement(t *testing.T) {
 	}
 	if result.IsError {
 		t.Fatalf("unexpected error after dep completed: %v", result.Content)
+	}
+}
+
+func TestHandleTaskUpdateSubtaskEnforcement(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	ctx := t.Context()
+	createHandler := handleTaskCreate(db, ws)
+	updateHandler := handleTaskUpdate(db, ws)
+
+	// Create a parent task.
+	parentResult, _ := createHandler(ctx, makeRequest(map[string]any{"title": "Parent"}))
+	var parent Task
+	json.Unmarshal([]byte(parentResult.Content[0].(mcp.TextContent).Text), &parent)
+
+	// Create a subtask that's not done.
+	createHandler(ctx, makeRequest(map[string]any{"title": "Child", "parent_id": parent.ID}))
+
+	// Try to set parent to done — should fail.
+	result, err := updateHandler(ctx, makeRequest(map[string]any{
+		"id":     parent.ID,
+		"status": "done",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error: subtask not done")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "subtasks are not yet done") {
+		t.Errorf("expected subtask error message, got %q", text)
+	}
+
+	// Complete the subtask.
+	subtasks, _ := db.ListTasks(ws, ListFilter{ParentID: parent.ID})
+	updateHandler(ctx, makeRequest(map[string]any{
+		"id":     subtasks[0].ID,
+		"status": "done",
+	}))
+
+	// Now setting parent to done should succeed.
+	result, err = updateHandler(ctx, makeRequest(map[string]any{
+		"id":     parent.ID,
+		"status": "done",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error after subtask completed: %v", result.Content)
 	}
 }
 

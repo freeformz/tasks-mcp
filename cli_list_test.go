@@ -288,6 +288,54 @@ func TestModelConfirmClose(t *testing.T) {
 	}
 }
 
+func TestModelConfirmCloseBlockedBySubtask(t *testing.T) {
+	db, ws := testListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent with child", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Incomplete child", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModel(db, ws)
+
+	// Load tasks.
+	msg := m.loadTasks()
+	updated, _ := m.Update(msg)
+	m = updated.(listModel)
+
+	// Press c then y to confirm close.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(listModel)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(listModel)
+
+	// Execute close command — should fail.
+	if cmd != nil {
+		closeMsg := cmd()
+		updated, _ = m.Update(closeMsg)
+		m = updated.(listModel)
+	}
+
+	// Task should NOT be closed.
+	task, err := db.GetTask(ws, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status == StatusDone {
+		t.Error("expected task to remain open when subtask is incomplete")
+	}
+
+	// Model should have an error.
+	if m.err == nil {
+		t.Error("expected error in model for incomplete subtask")
+	}
+}
+
 func TestModelConfirmCloseYes(t *testing.T) {
 	db, ws := testListDB(t)
 

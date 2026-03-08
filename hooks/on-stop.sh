@@ -30,4 +30,5 @@ fi
 
 if [ -n "$output" ]; then
     echo "$output"
+    exit 2
 fi
