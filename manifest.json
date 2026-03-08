@@ -13,7 +13,7 @@
     "entry_point": "server/tasks-mcp",
     "mcp_config": {
       "command": "${__dirname}/server/tasks-mcp",
-      "args": [],
+      "args": ["mcp"],
       "env": {}
     }
   },
