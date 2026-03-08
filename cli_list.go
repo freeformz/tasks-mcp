@@ -108,8 +108,7 @@ func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool
 		}
 	}
 
-	w.Flush()
-	return nil
+	return w.Flush()
 }
 
 func printTaskRow(w *tabwriter.Writer, t Task, prefix string, shorten func(string) string) {
