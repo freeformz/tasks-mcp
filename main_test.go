@@ -35,29 +35,47 @@ func TestFormatActiveTasksReminderEmpty(t *testing.T) {
 	}
 }
 
-func TestPrintTask(t *testing.T) {
-	// Redirect stdout to capture output.
+// captureStdout redirects os.Stdout to a pipe, runs fn, and returns the captured output.
+// It uses t.Cleanup to ensure stdout is always restored.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
 	old := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
 	os.Stdout = w
-
-	printTask(Task{
-		ID:       "test-id-123",
-		Title:    "Test task",
-		Status:   StatusInProgress,
-		Priority: PriorityHigh,
-		Tags:     []string{"bug", "urgent"},
-		Assignee: "alice",
-		Subtasks: []Task{
-			{ID: "sub-1", Title: "Subtask 1", Status: StatusTodo},
-		},
+	t.Cleanup(func() {
+		os.Stdout = old
+		r.Close()
 	})
+
+	fn()
 
 	w.Close()
 	os.Stdout = old
 
-	out, _ := io.ReadAll(r)
-	output := string(out)
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read pipe: %v", err)
+	}
+	return string(out)
+}
+
+func TestPrintTask(t *testing.T) {
+	output := captureStdout(t, func() {
+		printTask(Task{
+			ID:       "test-id-123",
+			Title:    "Test task",
+			Status:   StatusInProgress,
+			Priority: PriorityHigh,
+			Tags:     []string{"bug", "urgent"},
+			Assignee: "alice",
+			Subtasks: []Task{
+				{ID: "sub-1", Title: "Subtask 1", Status: StatusTodo},
+			},
+		})
+	})
 
 	if !strings.Contains(output, "Test task") {
 		t.Errorf("expected task title in output, got %q", output)
@@ -77,22 +95,14 @@ func TestPrintTask(t *testing.T) {
 }
 
 func TestPrintTask_Minimal(t *testing.T) {
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	printTask(Task{
-		ID:       "min-id",
-		Title:    "Minimal",
-		Status:   StatusTodo,
-		Priority: PriorityMedium,
+	output := captureStdout(t, func() {
+		printTask(Task{
+			ID:       "min-id",
+			Title:    "Minimal",
+			Status:   StatusTodo,
+			Priority: PriorityMedium,
+		})
 	})
-
-	w.Close()
-	os.Stdout = old
-
-	out, _ := io.ReadAll(r)
-	output := string(out)
 
 	if !strings.Contains(output, "Minimal") {
 		t.Errorf("expected task title, got %q", output)
@@ -104,22 +114,14 @@ func TestPrintTask_Minimal(t *testing.T) {
 }
 
 func TestPrintTask_Critical(t *testing.T) {
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	printTask(Task{
-		ID:       "crit-id",
-		Title:    "Critical task",
-		Status:   StatusBlocked,
-		Priority: PriorityCritical,
+	output := captureStdout(t, func() {
+		printTask(Task{
+			ID:       "crit-id",
+			Title:    "Critical task",
+			Status:   StatusBlocked,
+			Priority: PriorityCritical,
+		})
 	})
-
-	w.Close()
-	os.Stdout = old
-
-	out, _ := io.ReadAll(r)
-	output := string(out)
 
 	if !strings.Contains(output, "[CRITICAL]") {
 		t.Errorf("expected [CRITICAL], got %q", output)

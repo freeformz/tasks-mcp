@@ -999,7 +999,11 @@ func TestAddNote_UpdatesTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(10 * time.Millisecond)
+	// Backdate the task's updated_at to guarantee AddNote advances it.
+	past := original.UpdatedAt.Add(-time.Second)
+	if _, err := db.db.Exec(`UPDATE tasks SET updated_at = ? WHERE id = ?`, past, task.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := db.AddNote(task.ID, "should update timestamp"); err != nil {
 		t.Fatal(err)
@@ -1010,7 +1014,7 @@ func TestAddNote_UpdatesTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !updated.UpdatedAt.After(original.UpdatedAt) {
+	if !updated.UpdatedAt.After(past) {
 		t.Error("expected updated_at to advance after adding note")
 	}
 }
@@ -1110,28 +1114,41 @@ func TestGetNoteCount(t *testing.T) {
 func TestFindTaskBySuffix_Ambiguous(t *testing.T) {
 	db := testDB(t)
 
-	// Create two tasks and manipulate their IDs to share a suffix.
-	// Since UUIDs are random, just create enough that we can test the suffix
-	// mechanism by using a very short suffix (1 char) which should match multiple.
-	for i := 0; i < 20; i++ {
-		if _, err := db.CreateTask(testWorkspace, fmt.Sprintf("Task %d", i), "", StatusTodo, PriorityMedium, "", "", nil, nil); err != nil {
+	// Create 20 tasks and find a single-character suffix shared by at least 2.
+	// With 16 hex characters and 20 tasks, pigeonhole principle guarantees this.
+	var ids []string
+	for i := range 20 {
+		task, err := db.CreateTask(testWorkspace, fmt.Sprintf("Task %d", i), "", StatusTodo, PriorityMedium, "", "", nil, nil)
+		if err != nil {
 			t.Fatal(err)
 		}
+		ids = append(ids, task.ID)
 	}
 
-	// Use a single hex character as suffix — very likely to match multiple tasks.
-	for _, ch := range "0123456789abcdef" {
-		_, err := db.FindTaskBySuffix(testWorkspace, string(ch))
-		if err == nil {
-			// Some chars might match exactly 1, skip those.
-			continue
-		}
-		if strings.Contains(err.Error(), "ambiguous suffix") {
-			// Found an ambiguous match — test passes.
-			return
+	counts := make(map[byte]int)
+	for _, id := range ids {
+		last := id[len(id)-1]
+		counts[last]++
+	}
+
+	var ambiguousSuffix string
+	for ch, n := range counts {
+		if n >= 2 {
+			ambiguousSuffix = string(ch)
+			break
 		}
 	}
-	t.Skip("no ambiguous suffix found with 20 tasks (unlikely but possible)")
+	if ambiguousSuffix == "" {
+		t.Fatal("expected at least one ambiguous last-character suffix")
+	}
+
+	_, err := db.FindTaskBySuffix(testWorkspace, ambiguousSuffix)
+	if err == nil {
+		t.Fatalf("expected ambiguous suffix error for %q, got nil", ambiguousSuffix)
+	}
+	if !strings.Contains(err.Error(), "ambiguous suffix") {
+		t.Fatalf("expected ambiguous suffix error for %q, got: %v", ambiguousSuffix, err)
+	}
 }
 
 func TestDeleteTask_WrongWorkspace(t *testing.T) {
@@ -1151,25 +1168,41 @@ func TestDeleteTask_WrongWorkspace(t *testing.T) {
 func TestFindTaskBySuffixGlobal_Ambiguous(t *testing.T) {
 	db := testDB(t)
 
-	// Create tasks across multiple workspaces.
+	// Create 20 tasks across workspaces and find a shared suffix deterministically.
+	var ids []string
 	for i := range 20 {
 		ws := fmt.Sprintf("/ws/%d", i%3)
-		if _, err := db.CreateTask(ws, fmt.Sprintf("Global Task %d", i), "", StatusTodo, PriorityMedium, "", "", nil, nil); err != nil {
+		task, err := db.CreateTask(ws, fmt.Sprintf("Global Task %d", i), "", StatusTodo, PriorityMedium, "", "", nil, nil)
+		if err != nil {
 			t.Fatal(err)
 		}
+		ids = append(ids, task.ID)
 	}
 
-	// Use a single hex character — likely to match multiple tasks across workspaces.
-	for _, ch := range "0123456789abcdef" {
-		_, err := db.FindTaskBySuffixGlobal(string(ch))
-		if err == nil {
-			continue
-		}
-		if strings.Contains(err.Error(), "ambiguous suffix") {
-			return
+	counts := make(map[byte]int)
+	for _, id := range ids {
+		last := id[len(id)-1]
+		counts[last]++
+	}
+
+	var ambiguousSuffix string
+	for ch, n := range counts {
+		if n >= 2 {
+			ambiguousSuffix = string(ch)
+			break
 		}
 	}
-	t.Skip("no ambiguous suffix found with 20 tasks (unlikely but possible)")
+	if ambiguousSuffix == "" {
+		t.Fatal("expected at least one ambiguous last-character suffix")
+	}
+
+	_, err := db.FindTaskBySuffixGlobal(ambiguousSuffix)
+	if err == nil {
+		t.Fatalf("expected ambiguous suffix error for %q, got nil", ambiguousSuffix)
+	}
+	if !strings.Contains(err.Error(), "ambiguous suffix") {
+		t.Fatalf("expected ambiguous suffix error for %q, got: %v", ambiguousSuffix, err)
+	}
 }
 
 func TestGetTaskGlobal(t *testing.T) {

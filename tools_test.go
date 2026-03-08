@@ -260,7 +260,9 @@ func TestHandleTaskAddNote(t *testing.T) {
 	}
 
 	var updated Task
-	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &updated)
+	if err := json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &updated); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if updated.NoteCount != 1 {
 		t.Errorf("note_count = %d, want 1", updated.NoteCount)
@@ -301,9 +303,17 @@ func TestHandleTaskAddNoteInvalidMaxNotes(t *testing.T) {
 	createHandler := handleTaskCreate(db, ws)
 	addNoteHandler := handleTaskAddNote(db, ws)
 
-	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Max Notes Test"}))
+	createResult, err := createHandler(t.Context(), makeRequest(map[string]any{"title": "Max Notes Test"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createResult.IsError {
+		t.Fatalf("unexpected error: %v", createResult.Content)
+	}
 	var created Task
-	json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created)
+	if err := json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	tests := []struct {
 		name      string
@@ -362,16 +372,30 @@ func TestHandleTaskAddNoteCustomMaxNotes(t *testing.T) {
 	createHandler := handleTaskCreate(db, ws)
 	addNoteHandler := handleTaskAddNote(db, ws)
 
-	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Custom Max"}))
+	createResult, err := createHandler(t.Context(), makeRequest(map[string]any{"title": "Custom Max"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createResult.IsError {
+		t.Fatalf("unexpected error: %v", createResult.Content)
+	}
 	var created Task
-	json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created)
+	if err := json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	// Add 3 notes.
 	for i := 1; i <= 3; i++ {
-		addNoteHandler(t.Context(), makeRequest(map[string]any{
+		res, err := addNoteHandler(t.Context(), makeRequest(map[string]any{
 			"id":      created.ID,
 			"content": "note",
 		}))
+		if err != nil {
+			t.Fatalf("failed to add setup note %d: %v", i, err)
+		}
+		if res.IsError {
+			t.Fatalf("failed to add setup note %d: %v", i, res.Content)
+		}
 	}
 
 	// Request with max_notes=2 — should only return 2 notes.
@@ -388,7 +412,9 @@ func TestHandleTaskAddNoteCustomMaxNotes(t *testing.T) {
 	}
 
 	var task Task
-	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &task)
+	if err := json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &task); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if len(task.Notes) != 2 {
 		t.Errorf("got %d notes, want 2 (max_notes=2)", len(task.Notes))
 	}
@@ -404,22 +430,39 @@ func TestHandleTaskListIncludeDone(t *testing.T) {
 	listHandler := handleTaskList(db, ws)
 
 	// Create a task and mark it done.
-	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Done Task"}))
+	createResult, err := createHandler(t.Context(), makeRequest(map[string]any{"title": "Done Task"}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var created Task
-	json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created)
-	updateHandler(t.Context(), makeRequest(map[string]any{"id": created.ID, "status": "done"}))
+	if err := json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, err := updateHandler(t.Context(), makeRequest(map[string]any{"id": created.ID, "status": "done"})); err != nil {
+		t.Fatal(err)
+	}
 
 	// Without include_done.
-	result, _ := listHandler(t.Context(), makeRequest(map[string]any{}))
+	result, err := listHandler(t.Context(), makeRequest(map[string]any{}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var tasks []Task
-	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks)
+	if err := json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if len(tasks) != 0 {
 		t.Errorf("got %d tasks without include_done, want 0", len(tasks))
 	}
 
 	// With include_done.
-	result, _ = listHandler(t.Context(), makeRequest(map[string]any{"include_done": true}))
-	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks)
+	result, err = listHandler(t.Context(), makeRequest(map[string]any{"include_done": true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if len(tasks) != 1 {
 		t.Errorf("got %d tasks with include_done, want 1", len(tasks))
 	}

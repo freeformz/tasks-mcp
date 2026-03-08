@@ -246,7 +246,7 @@ Adds a timestamped note to a task. Notes are append-only and cannot be edited or
 |------|------|----------|-------------|
 | id | string | yes | Task ID |
 | content | string | yes | Note content |
-| max_notes | number | no | Number of recent notes to return (default: 5, 0 for all) |
+| max_notes | number | no | Non-negative integer; number of recent notes to return (default: 5, 0 for all, max: 10000) |
 
 **Returns:** Updated task object with notes array and note count.
 
