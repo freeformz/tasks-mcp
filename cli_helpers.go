@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +10,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ErrTaskNotFound indicates that a task could not be found.
+var ErrTaskNotFound = errors.New("task not found")
 
 // ShortID returns the last segment of a UUID (final 12 hex chars after the last hyphen).
 func ShortID(id string) string {
@@ -19,6 +24,7 @@ func ShortID(id string) string {
 
 // ResolveTaskID resolves a task ID that may be a short suffix or full UUID.
 // It tries a direct lookup first, then falls back to suffix matching.
+// Returns ErrTaskNotFound (wrapped) when no task matches.
 func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 	// Try exact match first.
 	task, err := db.GetTask(workspace, input)
@@ -26,20 +32,65 @@ func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 		return task, nil
 	}
 
+	// Only fall back to suffix matching if the exact lookup definitively
+	// failed because the task was not found. For any other error, return it
+	// directly so real failures (e.g., DB/query/scan errors) are not masked.
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
 	// Try suffix match.
 	task, err = db.FindTaskBySuffix(workspace, input)
-	if err != nil {
-		return nil, fmt.Errorf("could not resolve task ID %q: %w", input, err)
+	if err == nil {
+		return task, nil
 	}
-	return task, nil
+	// FindTaskBySuffix wraps ErrTaskNotFound for not-found; propagate as-is.
+	return nil, err
+}
+
+// ResolveTaskIDGlobal resolves a task ID across all workspaces.
+// It tries workspace-scoped resolution first, then falls back to global lookup
+// only when the task is definitively not found (not for ambiguous matches or other errors).
+// Returns the task and a warning message if the task was found in a different workspace.
+func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error) {
+	// Try workspace-scoped first.
+	task, err := ResolveTaskID(db, workspace, input)
+	if err == nil {
+		return task, "", nil
+	}
+
+	// Only fall back to global if the task was definitively not found.
+	// Ambiguous matches and other errors should be returned directly.
+	if !errors.Is(err, ErrTaskNotFound) {
+		return nil, "", err
+	}
+
+	// Fall back to global lookup by exact ID.
+	task, globalErr := db.GetTaskGlobal(input)
+	if globalErr == nil {
+		warning := fmt.Sprintf("⚠ Task is from workspace: %s", task.Workspace)
+		return task, warning, nil
+	}
+	// Only continue to suffix search if exact lookup returned not-found.
+	if !errors.Is(globalErr, sql.ErrNoRows) {
+		return nil, "", globalErr
+	}
+
+	task, globalErr = db.FindTaskBySuffixGlobal(input)
+	if globalErr != nil {
+		return nil, "", fmt.Errorf("could not resolve task ID %q in any workspace: %w", input, globalErr)
+	}
+
+	warning := fmt.Sprintf("⚠ Task is from workspace: %s", task.Workspace)
+	return task, warning, nil
 }
 
 // FindTaskBySuffix finds a task whose ID ends with the given suffix.
 // Returns an error if zero or multiple tasks match.
 func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
 	rows, err := d.db.Query(
-		`SELECT `+taskColumns+` FROM tasks WHERE workspace = ? AND id LIKE ?`,
-		workspace, "%"+suffix,
+		`SELECT `+taskColumns+` FROM tasks WHERE workspace = ? AND id LIKE ? ESCAPE '\'`,
+		workspace, "%"+escapeLikePattern(suffix),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find by suffix: %w", err)
@@ -60,7 +111,7 @@ func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
 
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("no task found matching suffix %q", suffix)
+		return nil, fmt.Errorf("%w: no task matching suffix %q", ErrTaskNotFound, suffix)
 	case 1:
 		return d.GetTask(workspace, matches[0].ID)
 	default:
@@ -121,6 +172,25 @@ func appendProgressNote(existing, newNote string) string {
 		return existing + "\n" + newNote
 	}
 	return newNote
+}
+
+// newWorkspaceShortener returns a function that shortens workspace paths by
+// replacing the home directory with ~. The home directory is resolved once.
+func newWorkspaceShortener() func(string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return func(workspace string) string { return workspace }
+	}
+	prefix := home + string(os.PathSeparator)
+	return func(workspace string) string {
+		if workspace == home {
+			return "~"
+		}
+		if strings.HasPrefix(workspace, prefix) {
+			return "~" + string(os.PathSeparator) + workspace[len(prefix):]
+		}
+		return workspace
+	}
 }
 
 // resolveWorkspace returns the given workspace if non-empty, or the current working directory.

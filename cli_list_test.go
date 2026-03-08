@@ -49,7 +49,9 @@ func TestStaticListOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	printTaskTable(w, tasks, false, db, ws)
+	if err := printTaskTable(w, tasks, false, false, db); err != nil {
+		t.Fatal(err)
+	}
 	w.Close()
 
 	var buf bytes.Buffer
@@ -88,6 +90,64 @@ func TestStaticListOutput(t *testing.T) {
 	}
 }
 
+func TestStaticListAllWorkspaces(t *testing.T) {
+	db, _ := testListDB(t)
+
+	ws1 := "/workspace/alpha"
+	ws2 := "/workspace/beta"
+
+	_, err := db.CreateTask(ws1, "Alpha task", "", StatusTodo, PriorityHigh, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws2, "Beta task", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without AllWorkspaces, only ws1 tasks.
+	tasks, err := db.ListTasks(ws1, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task in ws1, got %d", len(tasks))
+	}
+
+	// With AllWorkspaces, both.
+	tasks, err = db.ListTasks("", ListFilter{AllWorkspaces: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks across workspaces, got %d", len(tasks))
+	}
+
+	// Verify table output includes WORKSPACE column.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := printTaskTable(w, tasks, false, true, db); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	if !strings.Contains(output, "WORKSPACE") {
+		t.Error("output missing WORKSPACE column header")
+	}
+	if !strings.Contains(output, "Alpha task") {
+		t.Error("output missing 'Alpha task'")
+	}
+	if !strings.Contains(output, "Beta task") {
+		t.Error("output missing 'Beta task'")
+	}
+}
+
 func TestStaticListWithSubtasks(t *testing.T) {
 	db, ws := testListDB(t)
 
@@ -116,7 +176,9 @@ func TestStaticListWithSubtasks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	printTaskTable(w, tasks, true, db, ws)
+	if err := printTaskTable(w, tasks, true, false, db); err != nil {
+		t.Fatal(err)
+	}
 	w.Close()
 
 	var buf bytes.Buffer

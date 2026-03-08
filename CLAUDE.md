@@ -21,14 +21,6 @@ Task management MCP server for AI agents, built in Go.
 
 - Any changes to features or how tools work must be reflected in `docs/PRD.md`
 
-## Code Conventions
-
-- Follow [Effective Go](https://go.dev/doc/effective_go)
-- All public methods that make network calls must accept `context.Context` as first parameter
-- Use `any` instead of `interface{}`
-- Use standard library functions — don't reimplement stdlib
-- Tests use `t.Context()` — never `context.Background()` or `context.TODO()` in tests
-
 ## Build & Test
 
 ```sh

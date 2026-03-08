@@ -309,3 +309,70 @@ func TestWatchModelViewAllDone(t *testing.T) {
 		t.Errorf("expected completion message, got %q", view)
 	}
 }
+
+func TestWatchModelViewWorkspaceWarning(t *testing.T) {
+	m := watchModel{
+		task:             &Task{Title: "Remote task", Status: StatusInProgress, Priority: PriorityMedium, ID: "test-id"},
+		workspaceWarning: "⚠ Task is from workspace: /other/project",
+	}
+	view := m.View()
+	if !strings.Contains(view, "Task is from workspace: /other/project") {
+		t.Errorf("expected workspace warning, got %q", view)
+	}
+}
+
+func TestResolveTaskIDGlobal(t *testing.T) {
+	db := testDB(t)
+
+	ws1 := "/workspace/one"
+	ws2 := "/workspace/two"
+
+	task1, err := db.CreateTask(ws1, "Task in ws1", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task2, err := db.CreateTask(ws2, "Task in ws2", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolve task in its own workspace — no warning.
+	resolved, warning, err := ResolveTaskIDGlobal(db, ws1, task1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ID != task1.ID {
+		t.Errorf("expected task %s, got %s", task1.ID, resolved.ID)
+	}
+	if warning != "" {
+		t.Errorf("expected no warning, got %q", warning)
+	}
+
+	// Resolve task from different workspace — should produce warning.
+	resolved, warning, err = ResolveTaskIDGlobal(db, ws1, task2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ID != task2.ID {
+		t.Errorf("expected task %s, got %s", task2.ID, resolved.ID)
+	}
+	if warning == "" {
+		t.Error("expected workspace warning for cross-workspace resolution")
+	}
+	if !strings.Contains(warning, ws2) {
+		t.Errorf("expected warning to mention %s, got %q", ws2, warning)
+	}
+
+	// Resolve by suffix from different workspace.
+	suffix := ShortID(task2.ID)
+	resolved, warning, err = ResolveTaskIDGlobal(db, ws1, suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ID != task2.ID {
+		t.Errorf("expected task %s, got %s", task2.ID, resolved.ID)
+	}
+	if warning == "" {
+		t.Error("expected workspace warning for cross-workspace suffix resolution")
+	}
+}

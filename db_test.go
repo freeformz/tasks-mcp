@@ -315,6 +315,50 @@ func TestListTasksWorkspaceIsolation(t *testing.T) {
 	}
 }
 
+func TestListTasksAllWorkspacesOrdering(t *testing.T) {
+	db := testDB(t)
+
+	ws1 := "/workspace/alpha"
+	ws2 := "/workspace/beta"
+
+	// Create tasks in different workspaces with varied priorities.
+	for _, tc := range []struct {
+		ws, title string
+		pri       TaskPriority
+	}{
+		{ws2, "Beta high", PriorityHigh},
+		{ws1, "Alpha low", PriorityLow},
+		{ws1, "Alpha high", PriorityHigh},
+		{ws2, "Beta low", PriorityLow},
+	} {
+		if _, err := db.CreateTask(tc.ws, tc.title, "", StatusTodo, tc.pri, "", "", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tasks, err := db.ListTasks("", ListFilter{AllWorkspaces: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 4 {
+		t.Fatalf("got %d tasks, want 4", len(tasks))
+	}
+
+	// Should be sorted by workspace first, then priority within each workspace.
+	if tasks[0].Workspace != ws1 || tasks[0].Title != "Alpha high" {
+		t.Errorf("tasks[0]: got %s/%s, want alpha/Alpha high", tasks[0].Workspace, tasks[0].Title)
+	}
+	if tasks[1].Workspace != ws1 || tasks[1].Title != "Alpha low" {
+		t.Errorf("tasks[1]: got %s/%s, want alpha/Alpha low", tasks[1].Workspace, tasks[1].Title)
+	}
+	if tasks[2].Workspace != ws2 || tasks[2].Title != "Beta high" {
+		t.Errorf("tasks[2]: got %s/%s, want beta/Beta high", tasks[2].Workspace, tasks[2].Title)
+	}
+	if tasks[3].Workspace != ws2 || tasks[3].Title != "Beta low" {
+		t.Errorf("tasks[3]: got %s/%s, want beta/Beta low", tasks[3].Workspace, tasks[3].Title)
+	}
+}
+
 func TestUpdateTask(t *testing.T) {
 	db := testDB(t)
 

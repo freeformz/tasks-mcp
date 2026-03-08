@@ -128,14 +128,84 @@ func (d *DB) GetTask(workspace, id string) (*Task, error) {
 	return task, nil
 }
 
+// GetTaskGlobal retrieves a task by ID without workspace scoping.
+func (d *DB) GetTaskGlobal(id string) (*Task, error) {
+	task, err := scanTask(d.db.QueryRow(
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("get task (global): %w", err)
+	}
+
+	if err := d.enrichTaskMetadata(task); err != nil {
+		return nil, err
+	}
+
+	subtasks, err := d.getSubtasks(task.Workspace, id)
+	if err != nil {
+		return nil, err
+	}
+	task.Subtasks = subtasks
+
+	return task, nil
+}
+
+// escapeLikePattern escapes special characters in SQLite LIKE patterns
+// so that the input is treated literally. Uses '\' as the escape character.
+func escapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+// FindTaskBySuffixGlobal finds a task whose ID ends with the given suffix across all workspaces.
+func (d *DB) FindTaskBySuffixGlobal(suffix string) (*Task, error) {
+	rows, err := d.db.Query(
+		`SELECT `+taskColumns+` FROM tasks WHERE id LIKE ? ESCAPE '\'`,
+		"%"+escapeLikePattern(suffix),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("find by suffix: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		matches = append(matches, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("%w: no task matching suffix %q", ErrTaskNotFound, suffix)
+	case 1:
+		return d.GetTaskGlobal(matches[0].ID)
+	default:
+		var descs []string
+		for _, m := range matches {
+			descs = append(descs, fmt.Sprintf("%s (%s)", ShortID(m.ID), m.Workspace))
+		}
+		return nil, fmt.Errorf("ambiguous suffix %q matches %d tasks: %s", suffix, len(matches), strings.Join(descs, ", "))
+	}
+}
+
 func (d *DB) ListTasks(workspace string, filter ListFilter) ([]Task, error) {
 	query := `SELECT DISTINCT t.` + strings.ReplaceAll(taskColumns, ", ", ", t.")
 	query += ` FROM tasks t`
 	var args []any
 	var conditions []string
 
-	conditions = append(conditions, "t.workspace = ?")
-	args = append(args, workspace)
+	if !filter.AllWorkspaces {
+		conditions = append(conditions, "t.workspace = ?")
+		args = append(args, workspace)
+	}
 
 	if filter.Tag != "" {
 		query += ` JOIN task_tags tt ON t.id = tt.task_id`
@@ -162,8 +232,15 @@ func (d *DB) ListTasks(workspace string, filter ListFilter) ([]Task, error) {
 		conditions = append(conditions, "t.parent_id IS NULL")
 	}
 
-	query += " WHERE " + strings.Join(conditions, " AND ")
-	query += " ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	orderBy := " ORDER BY "
+	if filter.AllWorkspaces {
+		orderBy += "t.workspace, "
+	}
+	orderBy += "CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at"
+	query += orderBy
 
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
