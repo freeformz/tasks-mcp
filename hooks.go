@@ -89,15 +89,11 @@ func hooksSnapshotCmd() *cobra.Command {
 
 // writeSnapshot formats and writes the task snapshot to w.
 func writeSnapshot(w io.Writer, tasks []Task, agentType string) {
-	// Count tasks by status.
+	// Count tasks by status and separate into categories in a single pass.
 	counts := make(map[TaskStatus]int)
-	for _, t := range tasks {
-		counts[t.Status]++
-	}
-
-	// Separate assigned tasks (if agent_type is present) from the rest.
 	var assigned, inProgress, other []Task
 	for _, t := range tasks {
+		counts[t.Status]++
 		if agentType != "" && t.Assignee == agentType {
 			assigned = append(assigned, t)
 		} else if t.Status == StatusInProgress {
@@ -196,16 +192,12 @@ func hooksCheckActiveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			hasActive, err := db.HasActiveTasks(input.CWD)
+			tasks, err := db.ListTasks(input.CWD, ListFilter{Status: string(StatusInProgress)})
 			if err != nil {
 				return err
 			}
 
-			if hasActive {
-				tasks, err := db.ListTasks(input.CWD, ListFilter{Status: string(StatusInProgress)})
-				if err != nil {
-					return err
-				}
+			if len(tasks) > 0 {
 
 				result := map[string]any{
 					"decision": "block",

@@ -416,10 +416,6 @@ func (d *DB) CheckDependencies(workspace, taskID string) ([]Task, error) {
 	return incomplete, rows.Err()
 }
 
-func (d *DB) PendingSummary(workspace string) ([]Task, error) {
-	return d.ListTasks(workspace, ListFilter{})
-}
-
 func (d *DB) HasActiveTasks(workspace string) (bool, error) {
 	var count int
 	err := d.db.QueryRow(

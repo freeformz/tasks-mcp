@@ -1273,18 +1273,3 @@ func TestSubtasksEnrichedWithNotes(t *testing.T) {
 		t.Errorf("expected subtask note 'child note', got %v", got.Subtasks[0].Notes)
 	}
 }
-
-func TestPendingSummary(t *testing.T) {
-	db := testDB(t)
-
-	db.CreateTask(testWorkspace, "Todo", "", StatusTodo, PriorityMedium, "", "", nil, nil)
-	db.CreateTask(testWorkspace, "Done", "", StatusDone, PriorityMedium, "", "", nil, nil)
-
-	tasks, err := db.PendingSummary(testWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tasks) != 1 {
-		t.Fatalf("got %d tasks, want 1", len(tasks))
-	}
-}
