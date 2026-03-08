@@ -13,15 +13,19 @@ func TestRunClose_SetsStatusDone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Simulate what cli_close does: add note, then update status.
+	// Simulate what cli_close does: update status, then add note.
+	updates := map[string]string{
+		"status": string(StatusDone),
+	}
+	if _, err := db.UpdateTask(testWorkspace, task.ID, updates, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := db.AddNote(task.ID, "Closed manually via CLI"); err != nil {
 		t.Fatal(err)
 	}
 
-	updates := map[string]string{
-		"status": string(StatusDone),
-	}
-	updated, err := db.UpdateTask(testWorkspace, task.ID, updates, nil, nil, nil, nil)
+	updated, err := db.GetTask(testWorkspace, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +49,14 @@ func TestRunClose_WithNote(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Simulate cli_close: update status first, then add notes.
+	updates := map[string]string{
+		"status": string(StatusDone),
+	}
+	if _, err := db.UpdateTask(testWorkspace, task.ID, updates, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := db.AddNote(task.ID, "Closed manually via CLI"); err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +64,7 @@ func TestRunClose_WithNote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	updates := map[string]string{
-		"status": string(StatusDone),
-	}
-	updated, err := db.UpdateTask(testWorkspace, task.ID, updates, nil, nil, nil, nil)
+	updated, err := db.GetTask(testWorkspace, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

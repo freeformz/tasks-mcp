@@ -15,7 +15,7 @@ func closeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "close <id>",
 		Short: "Mark a task as done",
-		Long:  "Marks a task as done from the command line. Appends a progress note and enforces dependency completion. Accepts a short ID suffix or full UUID.",
+		Long:  "Marks a task as done from the command line. Adds a closure note and enforces dependency completion. Accepts a short ID suffix or full UUID.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input := args[0]
@@ -69,7 +69,7 @@ func closeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&note, "note", "", "add a progress note when closing")
+	cmd.Flags().StringVar(&note, "note", "", "add a note when closing")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "override workspace (default: cwd)")
 
 	return cmd

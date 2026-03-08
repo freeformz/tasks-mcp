@@ -246,10 +246,10 @@ func handleTaskAddNote(db *DB, workspace string) server.ToolHandlerFunc {
 		}
 
 		maxNotesFloat := request.GetFloat("max_notes", 5)
-		maxNotes := int(maxNotesFloat)
-		if maxNotes < 0 || float64(maxNotes) != maxNotesFloat {
+		if maxNotesFloat < 0 || maxNotesFloat != float64(int(maxNotesFloat)) || maxNotesFloat > 10000 {
 			return errResult("max_notes must be a non-negative integer"), nil
 		}
+		maxNotes := int(maxNotesFloat)
 
 		// Verify task exists in this workspace with a lightweight check.
 		if err := db.TaskExists(workspace, id); err != nil {
