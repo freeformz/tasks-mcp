@@ -208,10 +208,11 @@ func checkActiveCmd() *cobra.Command {
 
 func formatActiveTasksReminder(tasks []Task) string {
 	var b strings.Builder
-	b.WriteString("You have in-progress tasks that should be updated before ending the session:\n")
+	b.WriteString("You have in-progress tasks. If the session is ending, update them with progress notes and set an appropriate status (done, blocked, or todo).\n")
+	b.WriteString("If you are still actively working with the user, ignore this reminder and continue.\n")
+	b.WriteString("Do NOT delete tasks in response to this reminder.\n\n")
 	for _, t := range tasks {
 		fmt.Fprintf(&b, "- %s (id: %s)\n", t.Title, t.ID)
 	}
-	b.WriteString("\nPlease update these tasks with progress notes and appropriate status (done, blocked, or todo) before stopping.")
 	return b.String()
 }

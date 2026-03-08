@@ -44,6 +44,14 @@ When working as part of an agent team:
 - If blocked by dependencies, the error message will list which dependencies are incomplete
 - Either complete the dependencies first, or remove them with `remove_dependencies`
 
+### Stop hook behavior
+
+The Stop hook fires whenever you finish responding, not only when the session ends. It reminds you about in-progress tasks.
+
+- **Do NOT delete tasks** in response to the stop hook — it is a reminder, not an instruction to clean up
+- If the user is still actively chatting, simply acknowledge the reminder and continue working
+- Only update task status (to `done`, `blocked`, or `todo` with a progress note) when the session is genuinely ending and you are done with the work
+
 ### Best practices
 
 - Keep task titles short and descriptive

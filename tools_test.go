@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -335,6 +336,82 @@ func TestHandleTaskUpdateDependencyEnforcement(t *testing.T) {
 	}
 	if result.IsError {
 		t.Fatalf("unexpected error after dep completed: %v", result.Content)
+	}
+}
+
+func TestHandleTaskUpdateSubtaskEnforcement(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	ctx := t.Context()
+	createHandler := handleTaskCreate(db, ws)
+	updateHandler := handleTaskUpdate(db, ws)
+
+	// Create a parent task.
+	parentResult, err := createHandler(ctx, makeRequest(map[string]any{"title": "Parent"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parentResult.IsError {
+		t.Fatalf("unexpected error creating parent: %v", parentResult.Content)
+	}
+	var parent Task
+	if err := json.Unmarshal([]byte(parentResult.Content[0].(mcp.TextContent).Text), &parent); err != nil {
+		t.Fatalf("unmarshal parent: %v", err)
+	}
+
+	// Create a subtask that's not done.
+	childResult, err := createHandler(ctx, makeRequest(map[string]any{"title": "Child", "parent_id": parent.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childResult.IsError {
+		t.Fatalf("unexpected error creating child: %v", childResult.Content)
+	}
+
+	// Try to set parent to done — should fail.
+	result, err := updateHandler(ctx, makeRequest(map[string]any{
+		"id":     parent.ID,
+		"status": "done",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error: subtask not done")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "subtasks are not yet done") {
+		t.Errorf("expected subtask error message, got %q", text)
+	}
+
+	// Complete the subtask.
+	subtasks, err := db.ListTasks(ws, ListFilter{ParentID: parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subtasks) == 0 {
+		t.Fatal("expected at least one subtask")
+	}
+	result, err = updateHandler(ctx, makeRequest(map[string]any{
+		"id":     subtasks[0].ID,
+		"status": "done",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error completing subtask: %v", result.Content)
+	}
+
+	// Now setting parent to done should succeed.
+	result, err = updateHandler(ctx, makeRequest(map[string]any{
+		"id":     parent.ID,
+		"status": "done",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error after subtask completed: %v", result.Content)
 	}
 }
 

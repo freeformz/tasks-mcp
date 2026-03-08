@@ -62,6 +62,31 @@ func TestRunClose_WithNote(t *testing.T) {
 	}
 }
 
+func TestRunClose_FailsWithIncompleteSubtasks(t *testing.T) {
+	db := testDB(t)
+
+	parent, err := db.CreateTask(testWorkspace, "Parent task", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.CreateTask(testWorkspace, "Child task", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = validateSubtasksDone(db, testWorkspace, parent.ID)
+	if err == nil {
+		t.Fatal("expected error for incomplete subtasks, got nil")
+	}
+	if !strings.Contains(err.Error(), "subtasks are not yet done") {
+		t.Errorf("expected subtask error message, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "Child task") {
+		t.Errorf("expected child task name in error, got %q", err.Error())
+	}
+}
+
 func TestRunClose_FailsWithIncompleteDeps(t *testing.T) {
 	db := testDB(t)
 

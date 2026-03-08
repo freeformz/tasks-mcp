@@ -178,6 +178,13 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 				}
 			}
 
+			// Subtask enforcement: block done if any subtasks are not done.
+			if newStatus == string(StatusDone) {
+				if err := validateSubtasksDone(db, workspace, id); err != nil {
+					return errResult(err.Error()), nil
+				}
+			}
+
 			updates["status"] = newStatus
 		}
 

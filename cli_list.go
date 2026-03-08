@@ -181,6 +181,10 @@ func (m listModel) closeTask(id string) tea.Cmd {
 			return errMsg{err: err}
 		}
 
+		if err := validateSubtasksDone(m.db, m.workspace, id); err != nil {
+			return errMsg{err: err}
+		}
+
 		notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
 
 		updates := map[string]string{

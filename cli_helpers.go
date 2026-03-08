@@ -131,6 +131,33 @@ func resolveWorkspace(workspace string) (string, error) {
 	return os.Getwd()
 }
 
+// validateSubtasksDone checks that all subtasks of a task are done.
+// Returns an error listing incomplete subtasks, or nil if all are done (or there are no subtasks).
+// Note: subtasks are scoped to the same workspace as the parent because task creation
+// (both MCP and CLI) always uses the same workspace for parent and child.
+func validateSubtasksDone(db *DB, workspace, taskID string) error {
+	subtasks, err := db.ListTasks(workspace, ListFilter{ParentID: taskID, IncludeDone: true})
+	if err != nil {
+		return fmt.Errorf("check subtasks: %w", err)
+	}
+	var incomplete []Task
+	for _, st := range subtasks {
+		if st.Status != StatusDone {
+			incomplete = append(incomplete, st)
+		}
+	}
+	if len(incomplete) > 0 {
+		var b strings.Builder
+		b.WriteString("cannot set status to done: the following subtasks are not yet done:\n")
+		for _, t := range incomplete {
+			fmt.Fprintf(&b, "- %s [%s] (id: %s)\n", t.Title, t.Status, t.ID)
+		}
+		b.WriteString("Complete these subtasks first, or delete them if they are no longer needed.")
+		return fmt.Errorf("%s", b.String())
+	}
+	return nil
+}
+
 // validateDependencies checks that all dependencies of a task are done.
 // Returns an error describing incomplete dependencies, or nil if all are satisfied.
 func validateDependencies(db *DB, workspace, taskID, targetStatus string) error {

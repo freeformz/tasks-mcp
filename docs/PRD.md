@@ -145,6 +145,8 @@ Many-to-many relationship between tasks. Stored in `task_dependencies` junction 
 
 Hierarchical parent-child relationship via `parent_id`. Subtasks are returned nested under their parent in `task_get`. Deleting a parent cascades to all subtasks.
 
+**Enforcement:** A parent task cannot be set to `done` if any of its subtasks are not `done`. The error response lists which subtasks are incomplete. Subtasks must be completed or deleted before the parent can be closed. This is enforced in the MCP tool handler, the CLI `close` command, and the interactive TUI.
+
 ### Task Assignment
 
 Tasks can be assigned to agents or team members via the `assignee` field:
@@ -317,7 +319,7 @@ Interactive CLI for developers to monitor agent work and manage tasks. Built wit
 
 #### `tasks-mcp list`
 
-Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time.
+Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time. Planned: when a future `--all` flag is implemented, it will include a Workspace column and show tasks from all workspaces.
 
 - Excludes done tasks by default
 - Shows top-level tasks only by default
@@ -333,6 +335,15 @@ Static table of open tasks in the current workspace. Columns: ID (short prefix),
 | `--assignee <name>` | Filter by assignee |
 | `--include-done` | Include completed tasks |
 | `--workspace <path>` | Override workspace (default: cwd) |
+| `-a`, `--all` | *(Planned)* Show tasks across all workspaces. Adds a Workspace column to the output. Mutually exclusive with `--workspace` |
+
+**Cross-workspace mode (`-a` / `--all`) — planned, not yet implemented:**
+
+- Will list tasks from all workspaces in the database, not just the current directory
+- Will add a Workspace column showing the absolute path (or a shortened form) for each task
+- All other filters (`--status`, `--assignee`, `--include-done`, `--subtasks`) will still apply
+- Will not be supported in interactive TUI mode (`-i`); will exit with an error if both are specified
+- Output will be sorted by workspace, then by priority and creation time within each workspace
 
 **Interactive mode (`-i`):**
 
@@ -362,6 +373,7 @@ Live-updating TUI that displays a task and its full subtask tree. Polls the data
 
 **Behavior:**
 
+- *(Planned)* Task ID will be resolved across all workspaces, not just the current one. If the task belongs to a different workspace, the TUI will display a warning below the task title: `⚠ Task is from workspace: <path>`. Currently, task ID is resolved within the selected workspace only.
 - If the task has no subtasks, shows the single task and waits for it to complete (subtasks may be added later by agents)
 - Tree updates as agents add subtasks, change status, or append progress notes
 - Displays a summary when all tasks in the tree reach `done`
@@ -403,7 +415,7 @@ Marks a task as done from the command line.
 These are explicitly out of scope for the current version but may be considered later:
 
 - **Task templates** — Pre-defined task structures for common workflows
-- **Cross-workspace views** — Query tasks across all workspaces
+- **Cross-workspace views** — Query tasks across all workspaces (`list --all`, `watch` cross-workspace resolution) — planned
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
