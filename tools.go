@@ -70,7 +70,7 @@ func registerTools(srv *server.MCPServer, db *DB, workspace string) {
 			mcp.WithDescription("Add a timestamped note to a task. Use for progress updates, decisions, blockers, or any information worth recording. Notes are append-only and cannot be edited or deleted."),
 			mcp.WithString("id", mcp.Description("Task ID"), mcp.Required()),
 			mcp.WithString("content", mcp.Description("Note content"), mcp.Required()),
-			mcp.WithNumber("max_notes", mcp.Description("Number of recent notes to return (default: 5, 0 for all)")),
+			mcp.WithNumber("max_notes", mcp.Description("Number of recent notes to return (default: 5, 0 for all, max: 10000)")),
 		),
 		handleTaskAddNote(db, workspace),
 	)
