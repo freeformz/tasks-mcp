@@ -11,9 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ErrTaskNotFound indicates that a task could not be found.
-var ErrTaskNotFound = errors.New("task not found")
-
 // ShortID returns the last segment of a UUID (final 12 hex chars after the last hyphen).
 func ShortID(id string) string {
 	if i := strings.LastIndex(id, "-"); i >= 0 && i+1 < len(id) {
