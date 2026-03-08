@@ -615,27 +615,6 @@ func TestCheckDependencies_NoDeps(t *testing.T) {
 	}
 }
 
-func TestHasActiveTasks(t *testing.T) {
-	db := testDB(t)
-
-	has, err := db.HasActiveTasks(testWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if has {
-		t.Error("expected no active tasks")
-	}
-
-	db.CreateTask(testWorkspace, "Active", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
-
-	has, err = db.HasActiveTasks(testWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !has {
-		t.Error("expected active tasks")
-	}
-}
 
 func TestCheckCycle_SelfDependency(t *testing.T) {
 	db := testDB(t)

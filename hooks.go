@@ -198,7 +198,6 @@ func hooksCheckActiveCmd() *cobra.Command {
 			}
 
 			if len(tasks) > 0 {
-
 				result := map[string]any{
 					"decision": "block",
 					"reason":   formatActiveTasksReminder(tasks),

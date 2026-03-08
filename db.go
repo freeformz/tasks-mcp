@@ -416,14 +416,6 @@ func (d *DB) CheckDependencies(workspace, taskID string) ([]Task, error) {
 	return incomplete, rows.Err()
 }
 
-func (d *DB) HasActiveTasks(workspace string) (bool, error) {
-	var count int
-	err := d.db.QueryRow(
-		`SELECT COUNT(*) FROM tasks WHERE workspace = ? AND status = 'in_progress'`, workspace,
-	).Scan(&count)
-	return count > 0, err
-}
-
 func (d *DB) enrichTaskMetadata(t *Task) error {
 	tags, err := d.queryStrings(`SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag`, t.ID)
 	if err != nil {
