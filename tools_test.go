@@ -346,12 +346,26 @@ func TestHandleTaskUpdateSubtaskEnforcement(t *testing.T) {
 	updateHandler := handleTaskUpdate(db, ws)
 
 	// Create a parent task.
-	parentResult, _ := createHandler(ctx, makeRequest(map[string]any{"title": "Parent"}))
+	parentResult, err := createHandler(ctx, makeRequest(map[string]any{"title": "Parent"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parentResult.IsError {
+		t.Fatalf("unexpected error creating parent: %v", parentResult.Content)
+	}
 	var parent Task
-	json.Unmarshal([]byte(parentResult.Content[0].(mcp.TextContent).Text), &parent)
+	if err := json.Unmarshal([]byte(parentResult.Content[0].(mcp.TextContent).Text), &parent); err != nil {
+		t.Fatalf("unmarshal parent: %v", err)
+	}
 
 	// Create a subtask that's not done.
-	createHandler(ctx, makeRequest(map[string]any{"title": "Child", "parent_id": parent.ID}))
+	childResult, err := createHandler(ctx, makeRequest(map[string]any{"title": "Child", "parent_id": parent.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childResult.IsError {
+		t.Fatalf("unexpected error creating child: %v", childResult.Content)
+	}
 
 	// Try to set parent to done — should fail.
 	result, err := updateHandler(ctx, makeRequest(map[string]any{
@@ -370,7 +384,13 @@ func TestHandleTaskUpdateSubtaskEnforcement(t *testing.T) {
 	}
 
 	// Complete the subtask.
-	subtasks, _ := db.ListTasks(ws, ListFilter{ParentID: parent.ID})
+	subtasks, err := db.ListTasks(ws, ListFilter{ParentID: parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subtasks) == 0 {
+		t.Fatal("expected at least one subtask")
+	}
 	updateHandler(ctx, makeRequest(map[string]any{
 		"id":     subtasks[0].ID,
 		"status": "done",
