@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -44,6 +45,9 @@ func main() {
 	if err := fang.Execute(context.Background(), rootCmd,
 		fang.WithVersion(version),
 	); err != nil {
+		if errors.Is(err, errBlockStop) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }

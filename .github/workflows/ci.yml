@@ -35,6 +35,12 @@ jobs:
         if: steps.changes.outputs.go == 'true'
         run: go vet ./...
 
+      - name: Staticcheck
+        if: steps.changes.outputs.go == 'true'
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
       - name: Test
         if: steps.changes.outputs.go == 'true'
         run: go test -race -coverprofile=coverage.out ./...
