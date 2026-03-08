@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -517,7 +516,7 @@ List mode controls:
   j/k or arrows: navigate
   enter: view task details
   c: close selected task
-  q/esc: quit
+  q: quit
 
 Single-task mode:
   Polls the database for changes and re-renders automatically.
@@ -557,7 +556,7 @@ Single-task mode:
 
 				p := tea.NewProgram(m, tea.WithAltScreen())
 				if _, err := p.Run(); err != nil {
-					log.Fatal(err)
+					return fmt.Errorf("watch list mode: %w", err)
 				}
 				return nil
 			}
@@ -589,7 +588,7 @@ Single-task mode:
 
 			p := tea.NewProgram(m)
 			if _, err := p.Run(); err != nil {
-				log.Fatal(err)
+				return fmt.Errorf("watch task mode: %w", err)
 			}
 			return nil
 		},
