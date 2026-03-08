@@ -149,7 +149,7 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tasks, err := m.db.ListTasks(m.workspace, ListFilter{})
 		if err != nil {
 			m.err = err
-			return m, nil
+			return m, tickCmd(m.interval)
 		}
 		m.tasks = tasks
 		if m.cursor >= len(m.tasks) {
@@ -205,7 +205,7 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m watchModel) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc":
+	case "q":
 		m.quitting = true
 		return m, tea.Quit
 	case "up", "k":
@@ -243,6 +243,10 @@ func (m watchModel) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m watchModel) updateConfirmCloseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y":
+		if len(m.tasks) == 0 || m.cursor < 0 || m.cursor >= len(m.tasks) {
+			m.view = viewList
+			return m, nil
+		}
 		task := m.tasks[m.cursor]
 		m.view = viewList
 		return m, m.closeTask(task.ID)
