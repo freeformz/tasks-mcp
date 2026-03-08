@@ -45,6 +45,7 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stdout = w
+	// Ensure stdout is always restored and FDs closed, even on panic/Fatal.
 	t.Cleanup(func() {
 		os.Stdout = old
 		w.Close()
@@ -53,6 +54,7 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	fn()
 
+	// Close the write end so ReadAll can finish, then restore stdout.
 	w.Close()
 	os.Stdout = old
 
@@ -60,6 +62,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("read pipe: %v", err)
 	}
+	r.Close()
 	return string(out)
 }
 

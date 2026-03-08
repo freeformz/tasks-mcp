@@ -434,6 +434,9 @@ func TestHandleTaskListIncludeDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if createResult.IsError {
+		t.Fatalf("unexpected create error: %v", createResult.Content)
+	}
 	var created Task
 	if err := json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created); err != nil {
 		t.Fatalf("unmarshal: %v", err)
