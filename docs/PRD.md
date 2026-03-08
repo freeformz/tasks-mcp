@@ -319,7 +319,7 @@ Interactive CLI for developers to monitor agent work and manage tasks. Built wit
 
 #### `tasks-mcp list`
 
-Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time. When `--all` is used, includes a Workspace column and shows tasks from all workspaces.
+Static table of open tasks in the current workspace. Columns: ID (short prefix), Status, Priority, Title, Assignee, Tags. Ordered by priority then creation time. Planned: when a future `--all` flag is implemented, it will include a Workspace column and show tasks from all workspaces.
 
 - Excludes done tasks by default
 - Shows top-level tasks only by default

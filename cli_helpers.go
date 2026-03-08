@@ -133,6 +133,8 @@ func resolveWorkspace(workspace string) (string, error) {
 
 // validateSubtasksDone checks that all subtasks of a task are done.
 // Returns an error listing incomplete subtasks, or nil if all are done (or there are no subtasks).
+// Note: subtasks are scoped to the same workspace as the parent because task creation
+// (both MCP and CLI) always uses the same workspace for parent and child.
 func validateSubtasksDone(db *DB, workspace, taskID string) error {
 	subtasks, err := db.ListTasks(workspace, ListFilter{ParentID: taskID, IncludeDone: true})
 	if err != nil {
