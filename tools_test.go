@@ -391,10 +391,16 @@ func TestHandleTaskUpdateSubtaskEnforcement(t *testing.T) {
 	if len(subtasks) == 0 {
 		t.Fatal("expected at least one subtask")
 	}
-	updateHandler(ctx, makeRequest(map[string]any{
+	result, err = updateHandler(ctx, makeRequest(map[string]any{
 		"id":     subtasks[0].ID,
 		"status": "done",
 	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error completing subtask: %v", result.Content)
+	}
 
 	// Now setting parent to done should succeed.
 	result, err = updateHandler(ctx, makeRequest(map[string]any{
