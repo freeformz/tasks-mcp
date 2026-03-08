@@ -187,5 +187,11 @@ jobs:
           DOCKER_METADATA_OUTPUT_JSON: ${{ steps.meta.outputs.json }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          digests=( * )
+          if [ "${#digests[@]}" -lt 2 ]; then
+            echo "::error::Expected 2 digest files, found ${#digests[@]}"
+            exit 1
+          fi
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/${{ github.repository }}@sha256:%s ' *)
+            $(printf 'ghcr.io/${{ github.repository }}@sha256:%s ' "${digests[@]}")
