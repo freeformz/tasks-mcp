@@ -1,6 +1,12 @@
 package main
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrTaskNotFound indicates that a task could not be found.
+var ErrTaskNotFound = errors.New("task not found")
 
 type TaskStatus string
 

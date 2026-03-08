@@ -80,7 +80,7 @@ func listCmd() *cobra.Command {
 	return cmd
 }
 
-// printTaskTable writes a formatted task table to the given writer.
+// printTaskTable writes a formatted task table to the given file.
 func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool, db *DB) error {
 	var shorten func(string) string
 	if showWorkspace {
