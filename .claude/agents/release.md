@@ -10,13 +10,21 @@ Create and publish a new release for this project.
 
 ## Usage
 
-`/release <version>` — where `<version>` is a semver tag like `v0.5.0`
+`/release [version]` — where `[version]` is an optional semver tag like `v0.5.0`
+
+If no version is provided, the next version is determined automatically (see step 2).
 
 ## Instructions
 
 1. **Set git working directory** to the current project using `git_set_working_dir`.
 
-2. **Validate the version**: Verify the version matches the pattern `vMAJOR.MINOR.PATCH` (e.g., `v0.5.0`). If the user provides a version without the `v` prefix or a non-semver string, reject it with a clear error message explaining the required format.
+2. **Determine the version**:
+   - If a version was provided, validate it matches the pattern `vMAJOR.MINOR.PATCH` (e.g., `v0.5.0`). If the user provides a version without the `v` prefix, add it. If the string is not valid semver, reject with a clear error.
+   - If no version was provided, auto-detect the next version:
+     - List existing semver tags sorted by version: `git tag --list 'v*' --sort=-version:refname`.
+     - Take the latest tag (e.g., `v0.5.0`) and increment the **patch** version (e.g., `v0.5.1`).
+     - If no tags exist yet, default to `v0.1.0`.
+     - Show the user the computed version and the commits it will include, then ask for confirmation before proceeding.
 
 3. **Prepare and pull main**:
    - Ensure the working tree is clean: run `git status --porcelain` and abort with a clear message if there are uncommitted changes.
