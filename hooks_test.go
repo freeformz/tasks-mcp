@@ -135,15 +135,6 @@ func TestHooksSnapshot_NoAgentType(t *testing.T) {
 	}
 }
 
-func TestHooksCheckActive_ReFireApproves(t *testing.T) {
-	// When stop_hook_active is true, the hook should output approve JSON.
-	input := hookInput{StopHookActive: true}
-	if !input.StopHookActive {
-		t.Error("expected StopHookActive to be true")
-	}
-	// The actual command would output {"decision":"approve"} — tested via the struct.
-}
-
 func TestHooksCheckActive_BlocksOnActiveTasks(t *testing.T) {
 	db := testDB(t)
 	workspace := "/test/check-active"

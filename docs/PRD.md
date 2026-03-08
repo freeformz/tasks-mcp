@@ -477,7 +477,6 @@ Replaces the former `pending` subcommand. Used by the SessionStart hook. Reads h
 - Tasks assigned to this agent (if `agent_type` is present, shown first)
 - Count of tasks by status (e.g., `2 in_progress, 3 todo, 1 blocked`)
 - All non-done tasks with titles, IDs, status, priority, and assignee
-- All notes on active tasks (last 5, as returned by the database)
 
 Note: Behavioral guidance (task creation, lifecycle, multi-agent coordination) is handled by the MCP server's `WithInstructions`, which persists across context compactions via MCP tool calls. The snapshot focuses on task state, not behavioral rules.
 

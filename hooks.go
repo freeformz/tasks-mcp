@@ -185,6 +185,8 @@ func hooksCheckActiveCmd() *cobra.Command {
 				if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
 					return fmt.Errorf("encode result: %w", err)
 				}
+				// Close db explicitly since os.Exit skips deferred calls.
+				db.Close()
 				os.Exit(2)
 			}
 
