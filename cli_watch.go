@@ -389,7 +389,8 @@ func (m watchModel) viewSingleMode() string {
 		for i := len(m.task.Notes) - 1; i >= 0; i-- {
 			n := m.task.Notes[i]
 			ts := n.CreatedAt.Format("2006-01-02 15:04:05")
-			b.WriteString(fmt.Sprintf("  [%s] %s\n", ts, n.Content))
+			content := strings.ReplaceAll(n.Content, "\n", "\n                        ")
+			fmt.Fprintf(&b, "  [%s] %s\n", ts, content)
 		}
 	}
 
@@ -501,7 +502,8 @@ func (m watchModel) renderDetail() string {
 		for i := len(t.Notes) - 1; i >= 0; i-- {
 			n := t.Notes[i]
 			ts := n.CreatedAt.Format("2006-01-02 15:04:05")
-			fmt.Fprintf(&b, "  [%s] %s\n", ts, n.Content)
+			content := strings.ReplaceAll(n.Content, "\n", "\n                        ")
+			fmt.Fprintf(&b, "  [%s] %s\n", ts, content)
 		}
 	}
 
