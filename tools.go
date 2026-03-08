@@ -50,20 +50,29 @@ func registerTools(srv *server.MCPServer, db *DB, workspace string) {
 
 	srv.AddTool(
 		mcp.NewTool("task_update",
-			mcp.WithDescription("Update an existing task. Only specified fields are changed. Use progress_note to append timestamped notes about work done. IMPORTANT: Always set status to 'done' when a task is complete."),
+			mcp.WithDescription("Update an existing task. Only specified fields are changed. IMPORTANT: Always set status to 'done' when a task is complete. Use task_add_note to add progress notes."),
 			mcp.WithString("id", mcp.Description("Task ID"), mcp.Required()),
 			mcp.WithString("title", mcp.Description("New title")),
 			mcp.WithString("description", mcp.Description("New description")),
 			mcp.WithString("status", mcp.Description("New status: todo, in_progress, done, blocked. Note: transitioning to in_progress or done will fail if dependencies are not yet done.")),
 			mcp.WithString("priority", mcp.Description("New priority: low, medium, high, critical")),
 			mcp.WithString("assignee", mcp.Description("New assignee name (use empty string to unassign)")),
-			mcp.WithString("progress_note", mcp.Description("Note to append to progress log (timestamped automatically)")),
 			mcp.WithString("add_tags", mcp.Description("Comma-separated tags to add")),
 			mcp.WithString("remove_tags", mcp.Description("Comma-separated tags to remove")),
 			mcp.WithString("add_dependencies", mcp.Description("Comma-separated task IDs to add as dependencies")),
 			mcp.WithString("remove_dependencies", mcp.Description("Comma-separated task IDs to remove from dependencies")),
 		),
 		handleTaskUpdate(db, workspace),
+	)
+
+	srv.AddTool(
+		mcp.NewTool("task_add_note",
+			mcp.WithDescription("Add a timestamped note to a task. Use for progress updates, decisions, blockers, or any information worth recording. Notes are append-only and cannot be edited or deleted."),
+			mcp.WithString("id", mcp.Description("Task ID"), mcp.Required()),
+			mcp.WithString("content", mcp.Description("Note content"), mcp.Required()),
+			mcp.WithNumber("max_notes", mcp.Description("Number of recent notes to return (default: 5, 0 for all)")),
+		),
+		handleTaskAddNote(db, workspace),
 	)
 
 	srv.AddTool(
@@ -200,15 +209,6 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 			updates["assignee"] = request.GetString("assignee", "")
 		}
 
-		if note := request.GetString("progress_note", ""); note != "" {
-			existing, err := db.GetTask(workspace, id)
-			if err != nil {
-				return errResult(fmt.Sprintf("get task for note: %s", err)), nil
-			}
-			entry := formatProgressNote(note)
-			updates["progress_notes"] = appendProgressNote(existing.ProgressNotes, entry)
-		}
-
 		addTags := splitCSV(request.GetString("add_tags", ""))
 		removeTags := splitCSV(request.GetString("remove_tags", ""))
 		addDeps := splitCSV(request.GetString("add_dependencies", ""))
@@ -226,11 +226,51 @@ func handleTaskUpdate(db *DB, workspace string) server.ToolHandlerFunc {
 
 		if newStatus == string(StatusInProgress) {
 			result.Content = append(result.Content, mcp.NewTextContent(
-				"Reminder: set this task to 'done' with a progress_note when complete.",
+				"Reminder: set this task to 'done' when complete. Use task_add_note to log progress.",
 			))
 		}
 
 		return result, nil
+	}
+}
+
+func handleTaskAddNote(db *DB, workspace string) server.ToolHandlerFunc {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		id := request.GetString("id", "")
+		if id == "" {
+			return errResult("id is required"), nil
+		}
+		content := request.GetString("content", "")
+		if content == "" {
+			return errResult("content is required"), nil
+		}
+
+		// Verify task exists in this workspace.
+		if _, err := db.GetTask(workspace, id); err != nil {
+			return errResult(fmt.Sprintf("task not found: %s", err)), nil
+		}
+
+		if _, err := db.AddNote(id, content); err != nil {
+			return errResult(fmt.Sprintf("add note: %s", err)), nil
+		}
+
+		// Return the updated task.
+		maxNotes := int(request.GetFloat("max_notes", 5))
+		task, err := db.GetTask(workspace, id)
+		if err != nil {
+			return errResult(fmt.Sprintf("get task: %s", err)), nil
+		}
+
+		// If max_notes differs from default 5, re-fetch notes.
+		if maxNotes != 5 {
+			notes, err := db.GetNotes(id, maxNotes)
+			if err != nil {
+				return errResult(fmt.Sprintf("get notes: %s", err)), nil
+			}
+			task.Notes = notes
+		}
+
+		return jsonResult(task)
 	}
 }
 

@@ -13,9 +13,13 @@ func TestRunClose_SetsStatusDone(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Simulate what cli_close does: add note, then update status.
+	if _, err := db.AddNote(task.ID, "Closed manually via CLI"); err != nil {
+		t.Fatal(err)
+	}
+
 	updates := map[string]string{
-		"status":         string(StatusDone),
-		"progress_notes": "[2026-01-01 00:00:00] Closed manually via CLI",
+		"status": string(StatusDone),
 	}
 	updated, err := db.UpdateTask(testWorkspace, task.ID, updates, nil, nil, nil, nil)
 	if err != nil {
@@ -25,8 +29,11 @@ func TestRunClose_SetsStatusDone(t *testing.T) {
 	if updated.Status != StatusDone {
 		t.Errorf("got status %q, want %q", updated.Status, StatusDone)
 	}
-	if !strings.Contains(updated.ProgressNotes, "Closed manually via CLI") {
-		t.Errorf("expected progress notes to contain 'Closed manually via CLI', got %q", updated.ProgressNotes)
+	if updated.NoteCount != 1 {
+		t.Errorf("got note count %d, want 1", updated.NoteCount)
+	}
+	if len(updated.Notes) != 1 || updated.Notes[0].Content != "Closed manually via CLI" {
+		t.Errorf("expected note 'Closed manually via CLI', got %v", updated.Notes)
 	}
 }
 
@@ -38,13 +45,15 @@ func TestRunClose_WithNote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	closedNote := "[2026-01-01 00:00:00] Closed manually via CLI"
-	userNote := "[2026-01-01 00:00:00] All done here"
-	notes := closedNote + "\n" + userNote
+	if _, err := db.AddNote(task.ID, "Closed manually via CLI"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddNote(task.ID, "All done here"); err != nil {
+		t.Fatal(err)
+	}
 
 	updates := map[string]string{
-		"status":         string(StatusDone),
-		"progress_notes": notes,
+		"status": string(StatusDone),
 	}
 	updated, err := db.UpdateTask(testWorkspace, task.ID, updates, nil, nil, nil, nil)
 	if err != nil {
@@ -54,11 +63,8 @@ func TestRunClose_WithNote(t *testing.T) {
 	if updated.Status != StatusDone {
 		t.Errorf("got status %q, want %q", updated.Status, StatusDone)
 	}
-	if !strings.Contains(updated.ProgressNotes, "Closed manually via CLI") {
-		t.Errorf("expected 'Closed manually via CLI' in notes, got %q", updated.ProgressNotes)
-	}
-	if !strings.Contains(updated.ProgressNotes, "All done here") {
-		t.Errorf("expected 'All done here' in notes, got %q", updated.ProgressNotes)
+	if updated.NoteCount != 2 {
+		t.Errorf("got note count %d, want 2", updated.NoteCount)
 	}
 }
 

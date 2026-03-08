@@ -328,8 +328,7 @@ func (m watchModel) loadDetail(id string) tea.Cmd {
 // doCloseTask validates and closes a task, returning successMsg on success.
 func (m watchModel) doCloseTask(id string, successMsg tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		task, err := m.db.GetTask(m.workspace, id)
-		if err != nil {
+		if _, err := m.db.GetTask(m.workspace, id); err != nil {
 			return errMsg{err: err}
 		}
 
@@ -341,11 +340,12 @@ func (m watchModel) doCloseTask(id string, successMsg tea.Msg) tea.Cmd {
 			return errMsg{err: err}
 		}
 
-		notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
+		if _, err := m.db.AddNote(id, "Closed manually via CLI"); err != nil {
+			return errMsg{err: err}
+		}
 
 		updates := map[string]string{
-			"status":         string(StatusDone),
-			"progress_notes": notes,
+			"status": string(StatusDone),
 		}
 
 		if _, err := m.db.UpdateTask(m.workspace, id, updates, nil, nil, nil, nil); err != nil {
@@ -382,19 +382,13 @@ func (m watchModel) viewSingleMode() string {
 
 	b.WriteString(renderTree(m.task, "", true))
 
-	if m.task.ProgressNotes != "" {
-		b.WriteString("\n" + watchDimStyle.Render("Progress Notes:") + "\n")
-		notes := m.task.ProgressNotes
-		lines := strings.Split(notes, "\n")
-		const maxNotes = 10
-		if len(lines) > maxNotes {
-			lines = lines[len(lines)-maxNotes:]
-			b.WriteString(watchDimStyle.Render("  ...") + "\n")
-		}
-		for _, line := range lines {
-			if line != "" {
-				b.WriteString("  " + line + "\n")
-			}
+	if len(m.task.Notes) > 0 {
+		b.WriteString("\n" + watchDimStyle.Render(fmt.Sprintf("Notes (%d total):", m.task.NoteCount)) + "\n")
+		// Notes are newest-first; display oldest-first for reading order.
+		for i := len(m.task.Notes) - 1; i >= 0; i-- {
+			n := m.task.Notes[i]
+			ts := n.CreatedAt.Format("2006-01-02 15:04:05")
+			b.WriteString(fmt.Sprintf("  [%s] %s\n", ts, n.Content))
 		}
 	}
 
@@ -500,8 +494,14 @@ func (m watchModel) renderDetail() string {
 		}
 	}
 
-	if t.ProgressNotes != "" {
-		fmt.Fprintf(&b, "\n%s\n%s\n", labelStyle.Render("Progress Notes:"), t.ProgressNotes)
+	if len(t.Notes) > 0 {
+		fmt.Fprintf(&b, "\n%s\n", labelStyle.Render(fmt.Sprintf("Notes (%d total):", t.NoteCount)))
+		// Notes are newest-first; display oldest-first for reading order.
+		for i := len(t.Notes) - 1; i >= 0; i-- {
+			n := t.Notes[i]
+			ts := n.CreatedAt.Format("2006-01-02 15:04:05")
+			fmt.Fprintf(&b, "  [%s] %s\n", ts, n.Content)
+		}
 	}
 
 	b.WriteString("\n")

@@ -45,15 +45,18 @@ func closeCmd() *cobra.Command {
 				return err
 			}
 
-			notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
+			if _, err := db.AddNote(task.ID, "Closed manually via CLI"); err != nil {
+				return err
+			}
 
 			if note != "" {
-				notes = appendProgressNote(notes, formatProgressNote(note))
+				if _, err := db.AddNote(task.ID, note); err != nil {
+					return err
+				}
 			}
 
 			updates := map[string]string{
-				"status":         string(StatusDone),
-				"progress_notes": notes,
+				"status": string(StatusDone),
 			}
 
 			if _, err := db.UpdateTask(workspace, task.ID, updates, nil, nil, nil, nil); err != nil {

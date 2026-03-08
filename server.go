@@ -13,8 +13,8 @@ func NewServer(db *DB, workspace string) *server.MCPServer {
 Use these tools to create, track, and manage tasks for multi-step work.
 Tasks are scoped to the current workspace directory.
 Always check for existing tasks (task_list) at the start of a session before creating new ones.
-Update task status as you make progress. Add progress notes to track what was done.
-IMPORTANT: When you finish a task, you MUST set its status to "done" with a final progress note.
+Update task status as you make progress. Use task_add_note to log progress.
+IMPORTANT: When you finish a task, you MUST set its status to "done" with a final note via task_add_note.
 Also mark any subtasks as "done" before marking the parent task.
 Assign tasks to team members using the assignee field when working in agent teams.
 Dependencies are enforced: you cannot start or complete a task until its dependencies are done.

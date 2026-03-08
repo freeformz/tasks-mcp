@@ -15,5 +15,6 @@ Schema changes use `PRAGMA user_version` with sequential migration functions in 
 - Each migration runs exactly once, tracked by `PRAGMA user_version`
 - V1 is the initial schema; it uses `IF NOT EXISTS` to handle both fresh and pre-versioned databases
 - Never modify an existing migration — always add a new one
-- SQLite limitations: no `DROP COLUMN`, no `ALTER COLUMN`, no `ADD COLUMN IF NOT EXISTS` — check column existence via `pragma_table_info('table')` before `ALTER TABLE`
+- SQLite limitations: no `ALTER COLUMN`, no `ADD COLUMN IF NOT EXISTS` — check column existence via `pragma_table_info('table')` before `ALTER TABLE`
+- `DROP COLUMN` is supported (SQLite 3.35.0+, works with modernc.org/sqlite)
 - Always create indexes on new columns in the same migration that adds the column

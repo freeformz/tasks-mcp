@@ -103,7 +103,6 @@ Tasks are scoped by the absolute path of the project directory. The MCP server d
 | priority | enum | no | "medium" | Importance level (see below) |
 | assignee | string | no | "" | Agent or team member name |
 | parent_id | UUID string | no | null | Parent task ID (makes this a subtask) |
-| progress_notes | text | no | "" | Timestamped log of progress entries |
 | created_at | datetime | auto | now | Creation timestamp (UTC) |
 | updated_at | datetime | auto | now | Last modification timestamp (UTC) |
 
@@ -154,6 +153,16 @@ Tasks can be assigned to agents or team members via the `assignee` field:
 - Tasks can be filtered by assignee in `task_list`
 - Unassigned tasks (empty assignee) are available for any team member
 - Assignee can be changed or cleared via `task_update`
+
+### Task Notes
+
+Structured, append-only notes stored in the `task_notes` table. Each note has an auto-generated UUID, task ID, content, and creation timestamp.
+
+- Notes are added via `task_add_note` — they cannot be edited or deleted
+- Both `task_list` and `task_get` return the last 5 notes and total note count by default
+- `task_add_note` accepts a `max_notes` parameter to control how many notes are returned (0 for all)
+- Notes are ordered newest-first in the API response
+- Notes replace the former `progress_notes` text field, providing structured storage and efficient querying
 
 ## MCP Tools
 
@@ -218,7 +227,6 @@ Updates an existing task. Only specified fields are modified. Enforces dependenc
 | status | string | no | New status (dependency enforcement applies) |
 | priority | string | no | New priority |
 | assignee | string | no | New assignee (empty string to unassign) |
-| progress_note | string | no | Note appended with timestamp |
 | add_tags | string | no | Comma-separated tags to add |
 | remove_tags | string | no | Comma-separated tags to remove |
 | add_dependencies | string | no | Comma-separated task IDs to add |
@@ -227,6 +235,20 @@ Updates an existing task. Only specified fields are modified. Enforces dependenc
 **Returns:** Updated task object.
 
 **Dependency enforcement:** If `status` is set to `in_progress` or `done` and any dependency task is not `done`, the update is rejected with an error listing the incomplete dependencies.
+
+### task_add_note
+
+Adds a timestamped note to a task. Notes are append-only and cannot be edited or deleted. Use for progress updates, decisions, blockers, or any information worth recording.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| id | string | yes | Task ID |
+| content | string | yes | Note content |
+| max_notes | number | no | Number of recent notes to return (default: 5, 0 for all) |
+
+**Returns:** Updated task object with notes array and note count.
 
 ### task_delete
 
@@ -284,7 +306,7 @@ Fires when Claude is about to stop responding. The hook script:
 A rules file (`.claude/rules/taskqueue.md`) instructs the agent:
 
 - When to create tasks (multi-step work, cross-session projects)
-- How to manage the task lifecycle (create -> in_progress -> progress notes -> done)
+- How to manage the task lifecycle (create -> in_progress -> notes -> done)
 - How to use task assignment in agent teams
 - How dependency enforcement works
 - What fields are available and how to use them
@@ -315,7 +337,7 @@ Interactive CLI for developers to monitor agent work and manage tasks. Built wit
 
 **Code organization:** CLI/TUI code lives in separate files in the root package (`cli_list.go`, `cli_watch.go`, `cli_close.go`). TUI model logic is tested; view rendering is not.
 
-**Progress notes display:** Shown as raw text for now. See Future Considerations for richer formatting.
+**Notes display:** Notes are shown with timestamps in the detail and watch views. Last 5 notes shown by default with total count.
 
 #### `tasks-mcp list`
 
@@ -345,7 +367,7 @@ Interactive TUI for monitoring tasks. Works in two modes depending on whether an
 Opens a full-screen interactive task list showing all open top-level tasks in the current workspace. Polls for updates at the configured interval.
 
 - Navigate with arrow keys or j/k
-- Press Enter to expand a task and see subtasks, progress notes, and details
+- Press Enter to expand a task and see subtasks, notes, and details
 - Press `c` to close (mark done) the selected task — prompts for confirmation before closing
 - In detail view, navigate subtasks with j/k and press `c` to close a subtask
 - Press Esc or Backspace to go back from detail view to the list
@@ -359,7 +381,7 @@ Live-updating TUI that displays a task and its full subtask tree. Polls the data
 - Subtasks displayed as an indented tree
 - Status changes are reflected in real-time (via polling)
 - New subtasks added by agents appear automatically
-- Progress notes shown inline or expandable
+- Notes shown with timestamps
 
 **Flags:**
 
@@ -373,7 +395,7 @@ Live-updating TUI that displays a task and its full subtask tree. Polls the data
 
 - Task ID is resolved across all workspaces, not just the current one. If the task belongs to a different workspace, the TUI displays a warning: `⚠ Task is from workspace: <path>`
 - If the task has no subtasks, shows the single task and waits for it to complete (subtasks may be added later by agents)
-- Tree updates as agents add subtasks, change status, or append progress notes
+- Tree updates as agents add subtasks, change status, or add notes
 - Displays a summary when all tasks in the tree reach `done`
 - Press `q` or Ctrl+C to exit early
 
@@ -382,18 +404,18 @@ Live-updating TUI that displays a task and its full subtask tree. Polls the data
 Marks a task as done from the command line.
 
 - Sets status to `done`
-- Automatically appends a progress note: "Closed manually via CLI"
-- If `--note` is provided, that note is appended in addition to the automatic one
+- Automatically adds a note: "Closed manually via CLI"
+- If `--note` is provided, that note is added in addition to the automatic one
 - Prints confirmation with task title
 - Fails with error if dependencies are not yet done
 
-**Agent interaction:** If an agent is currently working on a task that is closed via CLI, the task status changes to `done` in the database. The agent will see the updated status (and the "Closed manually via CLI" progress note) on its next read, and should stop working on it. There is no real-time notification to the agent — it discovers the change on its next database access.
+**Agent interaction:** If an agent is currently working on a task that is closed via CLI, the task status changes to `done` in the database. The agent will see the updated status (and the "Closed manually via CLI" note) on its next read, and should stop working on it. There is no real-time notification to the agent — it discovers the change on its next database access.
 
 **Flags:**
 
 | Flag | Description |
 |------|-------------|
-| `--note <text>` | Add a progress note when closing |
+| `--note <text>` | Add a note when closing |
 | `--workspace <path>` | Override workspace (default: cwd) |
 
 ## Technical Requirements
@@ -416,4 +438,3 @@ These are explicitly out of scope for the current version but may be considered 
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
-- **Rich progress notes** — Parse timestamped progress notes for styled display (separate timestamps, syntax highlighting, collapsible entries)
