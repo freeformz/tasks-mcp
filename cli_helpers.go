@@ -32,6 +32,13 @@ func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 		return task, nil
 	}
 
+	// Only fall back to suffix matching if the exact lookup definitively
+	// failed because the task was not found. For any other error, return it
+	// directly so real failures (e.g., DB/query/scan errors) are not masked.
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
 	// Try suffix match.
 	task, err = db.FindTaskBySuffix(workspace, input)
 	if err == nil {
