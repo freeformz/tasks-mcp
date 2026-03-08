@@ -180,6 +180,8 @@ func TestRenderTreeWithSubtasks(t *testing.T) {
 	}
 }
 
+// --- Single-task mode tests ---
+
 func TestWatchModelTickRefreshesTask(t *testing.T) {
 	db := testDB(t)
 
@@ -374,5 +376,384 @@ func TestResolveTaskIDGlobal(t *testing.T) {
 	}
 	if warning == "" {
 		t.Error("expected workspace warning for cross-workspace suffix resolution")
+	}
+}
+
+// --- List mode tests ---
+
+func testWatchListDB(t *testing.T) (*DB, string) {
+	t.Helper()
+	db := testDB(t)
+	return db, "/test/watch-list-workspace"
+}
+
+func newListModeModel(db *DB, workspace string) watchModel {
+	return watchModel{
+		db:        db,
+		workspace: workspace,
+		listMode:  true,
+		noExit:    true,
+		interval:  0,
+	}
+}
+
+func TestListModeLoadsTasks(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	_, err := db.CreateTask(ws, "Task A", "", StatusTodo, PriorityHigh, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Task B", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Simulate a tick which loads tasks in list mode.
+	updated, cmd := m.Update(tickMsg{})
+	um := updated.(watchModel)
+
+	if len(um.tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(um.tasks))
+	}
+
+	// Should schedule another tick.
+	if cmd == nil {
+		t.Fatal("expected tick command after loading tasks")
+	}
+}
+
+func TestListModeRendersTasks(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	_, err := db.CreateTask(ws, "Visible task", "", StatusTodo, PriorityHigh, "bob", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	view := m.View()
+
+	if !strings.Contains(view, "Tasks") {
+		t.Error("expected 'Tasks' header in view")
+	}
+	if !strings.Contains(view, "Visible task") {
+		t.Error("expected task title in view")
+	}
+	if !strings.Contains(view, "@bob") {
+		t.Error("expected assignee in view")
+	}
+	if !strings.Contains(view, "j/k: navigate") {
+		t.Error("expected help text in view")
+	}
+}
+
+func TestListModeNavigation(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	_, err := db.CreateTask(ws, "Task A", "", StatusTodo, PriorityHigh, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Task B", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Task C", "", StatusTodo, PriorityLow, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	if len(m.tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(m.tasks))
+	}
+	if m.cursor != 0 {
+		t.Fatalf("expected cursor at 0, got %d", m.cursor)
+	}
+
+	// Move down with j.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(watchModel)
+	if m.cursor != 1 {
+		t.Errorf("expected cursor at 1 after j, got %d", m.cursor)
+	}
+
+	// Move down again.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(watchModel)
+	if m.cursor != 2 {
+		t.Errorf("expected cursor at 2 after second j, got %d", m.cursor)
+	}
+
+	// Move down at bottom should stay.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(watchModel)
+	if m.cursor != 2 {
+		t.Errorf("expected cursor to stay at 2, got %d", m.cursor)
+	}
+
+	// Move up with k.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(watchModel)
+	if m.cursor != 1 {
+		t.Errorf("expected cursor at 1 after k, got %d", m.cursor)
+	}
+
+	// Arrow keys should also work.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(watchModel)
+	if m.cursor != 0 {
+		t.Errorf("expected cursor at 0 after up arrow, got %d", m.cursor)
+	}
+
+	// Up at top should stay.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(watchModel)
+	if m.cursor != 0 {
+		t.Errorf("expected cursor to stay at 0, got %d", m.cursor)
+	}
+}
+
+func TestListModeDetailView(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	task, err := db.CreateTask(ws, "Expandable task", "details here", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	if m.view != viewList {
+		t.Fatalf("expected viewList, got %d", m.view)
+	}
+
+	// Press enter to view details.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+
+	// Execute the command to load detail.
+	if cmd != nil {
+		detailMsg := cmd()
+		updated, _ = m.Update(detailMsg)
+		m = updated.(watchModel)
+	}
+
+	if m.view != viewDetail {
+		t.Errorf("expected viewDetail after enter, got %d", m.view)
+	}
+	if m.detail == nil {
+		t.Fatal("expected detail to be loaded")
+	}
+	if m.detail.ID != task.ID {
+		t.Errorf("expected detail ID %s, got %s", task.ID, m.detail.ID)
+	}
+
+	// Verify detail view content.
+	view := m.View()
+	if !strings.Contains(view, "Expandable task") {
+		t.Error("expected task title in detail view")
+	}
+	if !strings.Contains(view, "details here") {
+		t.Error("expected description in detail view")
+	}
+	if !strings.Contains(view, "esc/backspace: back") {
+		t.Error("expected help text in detail view")
+	}
+
+	// Press esc to go back.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(watchModel)
+
+	if m.view != viewList {
+		t.Errorf("expected viewList after esc, got %d", m.view)
+	}
+	if m.detail != nil {
+		t.Error("expected detail to be nil after going back")
+	}
+}
+
+func TestListModeConfirmClose(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	_, err := db.CreateTask(ws, "Task to close", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	// Press c to enter confirm mode.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+
+	if m.view != viewConfirmClose {
+		t.Errorf("expected viewConfirmClose after c, got %d", m.view)
+	}
+
+	// Verify confirm view content.
+	view := m.View()
+	if !strings.Contains(view, "Close task") {
+		t.Error("expected close confirmation text")
+	}
+
+	// Press n to cancel.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = updated.(watchModel)
+
+	if m.view != viewList {
+		t.Errorf("expected viewList after n, got %d", m.view)
+	}
+}
+
+func TestListModeCloseTask(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	task, err := db.CreateTask(ws, "Task to close", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	// Press c then y.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(watchModel)
+
+	// Execute close command.
+	if cmd != nil {
+		closeMsg := cmd()
+		updated, _ = m.Update(closeMsg)
+		m = updated.(watchModel)
+	}
+
+	// Verify task was closed.
+	closed, err := db.GetTask(ws, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.Status != StatusDone {
+		t.Errorf("expected task status done, got %s", closed.Status)
+	}
+	if !strings.Contains(closed.ProgressNotes, "Closed manually via CLI") {
+		t.Error("expected progress note about CLI closure")
+	}
+}
+
+func TestListModeCloseBlockedBySubtask(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent with child", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Incomplete child", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	// Press c then y to confirm close.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(watchModel)
+
+	// Execute close command — should fail.
+	if cmd != nil {
+		closeMsg := cmd()
+		updated, _ = m.Update(closeMsg)
+		m = updated.(watchModel)
+	}
+
+	// Task should NOT be closed.
+	task, err := db.GetTask(ws, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status == StatusDone {
+		t.Error("expected task to remain open when subtask is incomplete")
+	}
+
+	// Model should have an error.
+	if m.err == nil {
+		t.Error("expected error in model for incomplete subtask")
+	}
+}
+
+func TestListModeEmptyView(t *testing.T) {
+	db, ws := testWatchListDB(t)
+	_ = db // no tasks created
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	view := m.View()
+	if !strings.Contains(view, "No tasks found") {
+		t.Error("expected 'No tasks found' in empty list view")
+	}
+}
+
+func TestListModeQuit(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks via tick.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+
+	// Press q to quit.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = updated.(watchModel)
+
+	if !m.quitting {
+		t.Error("expected quitting to be true")
+	}
+	if cmd == nil {
+		t.Fatal("expected quit command")
+	}
+
+	// Quitting view should be empty.
+	view := m.View()
+	if view != "" {
+		t.Errorf("expected empty view when quitting, got %q", view)
 	}
 }
