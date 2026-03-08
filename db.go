@@ -440,18 +440,39 @@ func (d *DB) enrichTaskMetadata(t *Task) error {
 	}
 	t.DependsOn = deps
 
-	noteCount, err := d.GetNoteCount(t.ID)
-	if err != nil {
-		return fmt.Errorf("get note count: %w", err)
-	}
-	t.NoteCount = noteCount
-
-	notes, err := d.GetNotes(t.ID, 5)
+	// Fetch last 5 notes and total count in a single query using a window function.
+	noteRows, err := d.db.Query(
+		`SELECT id, task_id, content, created_at, COUNT(*) OVER () AS total_count
+		 FROM task_notes WHERE task_id = ? ORDER BY created_at DESC LIMIT 5`, t.ID,
+	)
 	if err != nil {
 		return fmt.Errorf("get notes: %w", err)
 	}
-	t.Notes = notes
+	defer noteRows.Close()
 
+	for noteRows.Next() {
+		var note TaskNote
+		var totalCount int
+		if err := noteRows.Scan(&note.ID, &note.TaskID, &note.Content, &note.CreatedAt, &totalCount); err != nil {
+			return fmt.Errorf("scan note: %w", err)
+		}
+		t.Notes = append(t.Notes, note)
+		t.NoteCount = totalCount
+	}
+	if err := noteRows.Err(); err != nil {
+		return fmt.Errorf("iterate notes: %w", err)
+	}
+
+	return nil
+}
+
+// TaskExists checks if a task exists in a workspace.
+func (d *DB) TaskExists(workspace, id string) error {
+	var exists bool
+	err := d.db.QueryRow(`SELECT 1 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("task not found: %w", err)
+	}
 	return nil
 }
 
@@ -459,16 +480,35 @@ func (d *DB) enrichTaskMetadata(t *Task) error {
 func (d *DB) AddNote(taskID, content string) (*TaskNote, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := d.db.Exec(
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx for add note: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
 		`INSERT INTO task_notes (id, task_id, content, created_at) VALUES (?, ?, ?, ?)`,
 		id, taskID, content, now,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, fmt.Errorf("add note: %w", err)
 	}
+
 	// Touch the task's updated_at.
-	if _, err := d.db.Exec(`UPDATE tasks SET updated_at = ? WHERE id = ?`, now, taskID); err != nil {
+	res, err := tx.Exec(`UPDATE tasks SET updated_at = ? WHERE id = ?`, now, taskID)
+	if err != nil {
 		return nil, fmt.Errorf("update task timestamp: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("update task timestamp rows affected: %w", err)
+	}
+	if n == 0 {
+		return nil, fmt.Errorf("add note: task not found")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit add note: %w", err)
 	}
 	return &TaskNote{ID: id, TaskID: taskID, Content: content, CreatedAt: now}, nil
 }

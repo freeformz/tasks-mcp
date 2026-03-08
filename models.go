@@ -43,21 +43,21 @@ func (p TaskPriority) Valid() bool {
 }
 
 type Task struct {
-	ID            string       `json:"id"`
-	Workspace     string       `json:"workspace"`
-	Title         string       `json:"title"`
-	Description   string       `json:"description,omitempty"`
-	Status        TaskStatus   `json:"status"`
-	Priority      TaskPriority `json:"priority"`
-	Assignee      string       `json:"assignee,omitempty"`
-	ParentID  string       `json:"parent_id,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
-	Tags      []string     `json:"tags,omitempty"`
-	DependsOn []string     `json:"depends_on,omitempty"`
-	Subtasks  []Task       `json:"subtasks,omitempty"`
-	Notes     []TaskNote   `json:"notes,omitempty"`
-	NoteCount int          `json:"note_count"`
+	ID          string       `json:"id"`
+	Workspace   string       `json:"workspace"`
+	Title       string       `json:"title"`
+	Description string       `json:"description,omitempty"`
+	Status      TaskStatus   `json:"status"`
+	Priority    TaskPriority `json:"priority"`
+	Assignee    string       `json:"assignee,omitempty"`
+	ParentID    string       `json:"parent_id,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	Tags        []string     `json:"tags,omitempty"`
+	DependsOn   []string     `json:"depends_on,omitempty"`
+	Subtasks    []Task       `json:"subtasks,omitempty"`
+	Notes       []TaskNote   `json:"notes,omitempty"`
+	NoteCount   int          `json:"note_count"`
 }
 
 type TaskNote struct {

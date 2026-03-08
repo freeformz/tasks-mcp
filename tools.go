@@ -245,8 +245,13 @@ func handleTaskAddNote(db *DB, workspace string) server.ToolHandlerFunc {
 			return errResult("content is required"), nil
 		}
 
-		// Verify task exists in this workspace.
-		if _, err := db.GetTask(workspace, id); err != nil {
+		maxNotes := int(request.GetFloat("max_notes", 5))
+		if maxNotes < 0 {
+			return errResult("max_notes must be non-negative"), nil
+		}
+
+		// Verify task exists in this workspace with a lightweight check.
+		if err := db.TaskExists(workspace, id); err != nil {
 			return errResult(fmt.Sprintf("task not found: %s", err)), nil
 		}
 
@@ -255,7 +260,6 @@ func handleTaskAddNote(db *DB, workspace string) server.ToolHandlerFunc {
 		}
 
 		// Return the updated task.
-		maxNotes := int(request.GetFloat("max_notes", 5))
 		task, err := db.GetTask(workspace, id)
 		if err != nil {
 			return errResult(fmt.Sprintf("get task: %s", err)), nil

@@ -101,7 +101,7 @@ func migrateV4TaskNotes(d *DB) error {
 			created_at DATETIME NOT NULL DEFAULT (datetime('now'))
 		);
 
-		CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id);
+		CREATE INDEX IF NOT EXISTS idx_task_notes_task_id_created ON task_notes(task_id, created_at DESC);
 	`)
 	if err != nil {
 		return fmt.Errorf("create task_notes table: %w", err)
