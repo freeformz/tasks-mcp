@@ -347,6 +347,7 @@ Opens a full-screen interactive task list showing all open top-level tasks in th
 - Navigate with arrow keys or j/k
 - Press Enter to expand a task and see subtasks, progress notes, and details
 - Press `c` to close (mark done) the selected task — prompts for confirmation before closing
+- In detail view, navigate subtasks with j/k and press `c` to close a subtask
 - Press Esc or Backspace to go back from detail view to the list
 - Press `q` to quit
 
@@ -412,7 +413,6 @@ Marks a task as done from the command line.
 These are explicitly out of scope for the current version but may be considered later:
 
 - **Task templates** — Pre-defined task structures for common workflows
-- **Close subtasks from TUI** — Allow closing individual subtasks from within `watch`, not just top-level tasks
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
