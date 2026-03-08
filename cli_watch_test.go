@@ -652,7 +652,7 @@ func TestListModeCloseTask(t *testing.T) {
 	if cmd != nil {
 		closeMsg := cmd()
 		updated, _ = m.Update(closeMsg)
-		m = updated.(watchModel)
+		_ = updated.(watchModel)
 	}
 
 	// Verify task was closed.

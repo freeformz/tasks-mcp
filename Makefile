@@ -1,4 +1,4 @@
-.PHONY: build test vet lint clean release release-snapshot
+.PHONY: build test vet staticcheck lint clean release release-snapshot
 
 # Build the binary
 build:
@@ -17,8 +17,12 @@ test-coverage:
 vet:
 	go vet ./...
 
-# Run vet + test
-lint: vet test
+# Run staticcheck
+staticcheck:
+	staticcheck ./...
+
+# Run vet + staticcheck + test
+lint: vet staticcheck test
 
 # Remove build artifacts
 clean:

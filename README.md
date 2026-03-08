@@ -75,11 +75,11 @@ Add to `.claude/settings.json` for automatic task context on session start and s
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume",
+        "matcher": "startup|resume|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/tasks-mcp/hooks/session-start.sh",
+            "command": "tasks-mcp hooks snapshot",
             "timeout": 10
           }
         ]
@@ -90,7 +90,7 @@ Add to `.claude/settings.json` for automatic task context on session start and s
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/tasks-mcp/hooks/on-stop.sh",
+            "command": "tasks-mcp hooks check-active",
             "timeout": 10
           }
         ]

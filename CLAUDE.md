@@ -4,13 +4,13 @@ Task management MCP server for AI agents, built in Go.
 
 ## Project Structure
 
-- `main.go` — Entry point, Cobra root command, MCP server + hook subcommands (pending, check-active)
+- `main.go` — Entry point, Cobra root command, MCP server setup
 - `server.go` — MCP server setup and tool registration
 - `tools.go` — MCP tool handlers (task_create, task_list, task_get, task_update, task_delete)
 - `models.go` — Task model, status/priority enums
 - `db.go` — SQLite database layer (CRUD, queries)
 - `migrations.go` — Versioned schema migrations (PRAGMA user_version)
-- `hooks/` — Claude Code hook scripts (session-start, on-stop)
+- `hooks.go` — Claude Code hook subcommands (snapshot, check-active)
 - `.claude/rules/taskqueue.md` — Rules instructing Claude how to use the MCP
 - `.claude/settings.json` — Hook configuration
 - `.goreleaser.yml` — GoReleaser config (builds, archives, MCPB bundles)
@@ -32,13 +32,15 @@ make lint               # vet + test
 make release-snapshot   # local goreleaser build (no publish)
 ```
 
+**Note:** If Claude Code hooks start failing (e.g. after code changes), run `go install .` to re-install the binary into your PATH.
+
 ## Development Workflow
 
 - **Never push directly to main** — main is protected by branch rulesets
 - Create a feature branch, make changes, push, and open a PR
 - CI must pass before merging
 - Merge via GitHub PR (squash, merge, or rebase — all allowed)
-- When pushing new commits to an existing PR, re-request a Copilot review
+- Copilot automatically starts a review when new commits are pushed to a PR — no need to manually re-request
 - Delete the feature branch after merging
 
 ## Releases
