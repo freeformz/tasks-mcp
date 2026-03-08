@@ -36,7 +36,7 @@ func TestFormatActiveTasksReminderEmpty(t *testing.T) {
 }
 
 // captureStdout redirects os.Stdout to a pipe, runs fn, and returns the captured output.
-// It uses t.Cleanup to ensure stdout is always restored.
+// It uses t.Cleanup to ensure stdout is always restored, even on panic/Fatal.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stdout
@@ -45,24 +45,26 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	os.Stdout = w
-	// Ensure stdout is always restored and FDs closed, even on panic/Fatal.
+	// Ensure stdout is always restored, even on panic/Fatal.
 	t.Cleanup(func() {
 		os.Stdout = old
-		w.Close()
-		r.Close()
 	})
 
 	fn()
 
-	// Close the write end so ReadAll can finish, then restore stdout.
-	w.Close()
+	// Close the write end so ReadAll can finish.
+	if err := w.Close(); err != nil {
+		t.Fatalf("close write pipe: %v", err)
+	}
 	os.Stdout = old
 
 	out, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatalf("read pipe: %v", err)
 	}
-	r.Close()
+	if err := r.Close(); err != nil {
+		t.Fatalf("close read pipe: %v", err)
+	}
 	return string(out)
 }
 
@@ -112,7 +114,7 @@ func TestPrintTask_Minimal(t *testing.T) {
 		t.Errorf("expected task title, got %q", output)
 	}
 	// No [HIGH]/[CRITICAL], no tags, no assignee.
-	if strings.Contains(output, "[") && strings.Contains(output, "MEDIUM") {
+	if strings.Contains(output, "[MEDIUM]") {
 		t.Errorf("medium priority should not be shown in brackets, got %q", output)
 	}
 }

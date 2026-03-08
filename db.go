@@ -444,7 +444,7 @@ func (d *DB) enrichTaskMetadata(t *Task) error {
 	// Fetch last 5 notes and total count in a single query using a window function.
 	noteRows, err := d.db.Query(
 		`SELECT id, task_id, content, created_at, COUNT(*) OVER () AS total_count
-		 FROM task_notes WHERE task_id = ? ORDER BY created_at DESC LIMIT 5`, t.ID,
+		 FROM task_notes WHERE task_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 5`, t.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("get notes: %w", err)
@@ -521,7 +521,7 @@ func (d *DB) AddNote(taskID, content string) (*TaskNote, error) {
 // GetNotes returns the most recent notes for a task, ordered newest first, limited to n.
 // If n <= 0, all notes are returned.
 func (d *DB) GetNotes(taskID string, n int) ([]TaskNote, error) {
-	query := `SELECT id, task_id, content, created_at FROM task_notes WHERE task_id = ? ORDER BY created_at DESC`
+	query := `SELECT id, task_id, content, created_at FROM task_notes WHERE task_id = ? ORDER BY created_at DESC, rowid DESC`
 	var args []any
 	args = append(args, taskID)
 	if n > 0 {
