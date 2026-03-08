@@ -322,10 +322,19 @@ func TestListTasksAllWorkspacesOrdering(t *testing.T) {
 	ws2 := "/workspace/beta"
 
 	// Create tasks in different workspaces with varied priorities.
-	db.CreateTask(ws2, "Beta high", "", StatusTodo, PriorityHigh, "", "", nil, nil)
-	db.CreateTask(ws1, "Alpha low", "", StatusTodo, PriorityLow, "", "", nil, nil)
-	db.CreateTask(ws1, "Alpha high", "", StatusTodo, PriorityHigh, "", "", nil, nil)
-	db.CreateTask(ws2, "Beta low", "", StatusTodo, PriorityLow, "", "", nil, nil)
+	for _, tc := range []struct {
+		ws, title string
+		pri       TaskPriority
+	}{
+		{ws2, "Beta high", PriorityHigh},
+		{ws1, "Alpha low", PriorityLow},
+		{ws1, "Alpha high", PriorityHigh},
+		{ws2, "Beta low", PriorityLow},
+	} {
+		if _, err := db.CreateTask(tc.ws, tc.title, "", StatusTodo, tc.pri, "", "", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	tasks, err := db.ListTasks("", ListFilter{AllWorkspaces: true})
 	if err != nil {

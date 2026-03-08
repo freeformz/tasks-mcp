@@ -134,7 +134,7 @@ func (d *DB) GetTaskGlobal(id string) (*Task, error) {
 		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id,
 	))
 	if err != nil {
-		return nil, fmt.Errorf("get task: %w", err)
+		return nil, fmt.Errorf("get task (global): %w", err)
 	}
 
 	if err := d.enrichTaskMetadata(task); err != nil {
@@ -184,7 +184,7 @@ func (d *DB) FindTaskBySuffixGlobal(suffix string) (*Task, error) {
 
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("no task found matching suffix %q", suffix)
+		return nil, fmt.Errorf("%w: no task matching suffix %q", ErrTaskNotFound, suffix)
 	case 1:
 		return d.GetTaskGlobal(matches[0].ID)
 	default:

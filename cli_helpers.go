@@ -12,7 +12,7 @@ import (
 )
 
 // ErrTaskNotFound indicates that a task could not be found.
-var ErrTaskNotFound = fmt.Errorf("task not found")
+var ErrTaskNotFound = errors.New("task not found")
 
 // ShortID returns the last segment of a UUID (final 12 hex chars after the last hyphen).
 func ShortID(id string) string {
