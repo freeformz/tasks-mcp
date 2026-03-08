@@ -41,6 +41,10 @@ func closeCmd() *cobra.Command {
 				return err
 			}
 
+			if err := validateSubtasksDone(db, workspace, task.ID); err != nil {
+				return err
+			}
+
 			notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
 
 			if note != "" {

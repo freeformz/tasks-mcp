@@ -1,11 +1,17 @@
 #!/bin/bash
 # Stop hook: reminds Claude to update in-progress tasks before ending.
 # Receives JSON on stdin with session info including cwd.
-# Exit code 2 blocks the stop; stdout JSON with decision/reason.
+# Uses stop_hook_active to avoid infinite loops when blocking.
 
 set -euo pipefail
 
 input=$(cat)
+
+# If this is a re-fire after we already blocked once, let Claude stop.
+if [ "$(echo "$input" | jq -r '.stop_hook_active')" = "true" ]; then
+    exit 0
+fi
+
 cwd=$(echo "$input" | jq -r '.cwd // empty')
 
 if [ -z "$cwd" ]; then
@@ -24,5 +30,4 @@ fi
 
 if [ -n "$output" ]; then
     echo "$output"
-    exit 2
 fi
