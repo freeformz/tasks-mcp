@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -984,6 +985,9 @@ func TestAddNote_NonexistentTask(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent task")
 	}
+	// AddNote fails with a FK constraint error (not ErrTaskNotFound) because
+	// the INSERT into task_notes triggers the foreign key check before the
+	// RowsAffected check on the UPDATE. The MCP handler uses TaskExists first.
 }
 
 func TestAddNote_UpdatesTimestamp(t *testing.T) {
@@ -1231,6 +1235,9 @@ func TestGetTaskGlobal_NotFound(t *testing.T) {
 	_, err := db.GetTaskGlobal("nonexistent-id")
 	if err == nil {
 		t.Fatal("expected error for nonexistent task")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("expected sql.ErrNoRows, got: %v", err)
 	}
 }
 

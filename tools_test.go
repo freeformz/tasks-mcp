@@ -438,14 +438,21 @@ func TestHandleTaskListIncludeDone(t *testing.T) {
 	if err := json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if _, err := updateHandler(t.Context(), makeRequest(map[string]any{"id": created.ID, "status": "done"})); err != nil {
+	updateResult, err := updateHandler(t.Context(), makeRequest(map[string]any{"id": created.ID, "status": "done"}))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if updateResult.IsError {
+		t.Fatalf("unexpected update error: %v", updateResult.Content)
 	}
 
 	// Without include_done.
 	result, err := listHandler(t.Context(), makeRequest(map[string]any{}))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected list error: %v", result.Content)
 	}
 	var tasks []Task
 	if err := json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks); err != nil {
@@ -459,6 +466,9 @@ func TestHandleTaskListIncludeDone(t *testing.T) {
 	result, err = listHandler(t.Context(), makeRequest(map[string]any{"include_done": true}))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected list error: %v", result.Content)
 	}
 	if err := json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks); err != nil {
 		t.Fatalf("unmarshal: %v", err)
