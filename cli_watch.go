@@ -159,6 +159,9 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			task, err := m.db.GetTask(m.workspace, m.detail.ID)
 			if err == nil {
 				m.detail = task
+				if m.subtaskCursor >= len(task.Subtasks) {
+					m.subtaskCursor = max(0, len(task.Subtasks)-1)
+				}
 			}
 		}
 		return m, tickCmd(m.interval)
@@ -534,7 +537,7 @@ func (m watchModel) renderConfirmClose() string {
 func (m watchModel) renderConfirmCloseSubtask() string {
 	if m.detail == nil || len(m.detail.Subtasks) == 0 ||
 		m.subtaskCursor < 0 || m.subtaskCursor >= len(m.detail.Subtasks) {
-		return ""
+		return m.renderDetail()
 	}
 	st := m.detail.Subtasks[m.subtaskCursor]
 
