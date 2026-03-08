@@ -6,6 +6,8 @@ paths:
 ## Go Conventions
 
 - Follow [Effective Go](https://go.dev/doc/effective_go)
+- Always check and handle errors — never ignore returned errors
+- Wrap errors with `%w` (e.g., `fmt.Errorf("context: %w", err)`) to preserve the error chain
 - All public methods that make network calls must accept `context.Context` as first parameter
 - Use `any` instead of `interface{}`
 - Use standard library functions — don't reimplement stdlib
