@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ErrTaskNotFound indicates that a task could not be found.
+var ErrTaskNotFound = fmt.Errorf("task not found")
 
 // ShortID returns the last segment of a UUID (final 12 hex chars after the last hyphen).
 func ShortID(id string) string {
@@ -19,6 +23,7 @@ func ShortID(id string) string {
 
 // ResolveTaskID resolves a task ID that may be a short suffix or full UUID.
 // It tries a direct lookup first, then falls back to suffix matching.
+// Returns ErrTaskNotFound (wrapped) when no task matches.
 func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 	// Try exact match first.
 	task, err := db.GetTask(workspace, input)
@@ -28,10 +33,14 @@ func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 
 	// Try suffix match.
 	task, err = db.FindTaskBySuffix(workspace, input)
-	if err != nil {
-		return nil, fmt.Errorf("could not resolve task ID %q: %w", input, err)
+	if err == nil {
+		return task, nil
 	}
-	return task, nil
+	// Wrap not-found with sentinel; propagate ambiguous and other errors as-is.
+	if strings.Contains(err.Error(), "no task found") {
+		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, input)
+	}
+	return nil, err
 }
 
 // ResolveTaskIDGlobal resolves a task ID across all workspaces.
@@ -45,10 +54,9 @@ func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error)
 		return task, "", nil
 	}
 
-	// Only fall back to global if the error indicates "not found".
+	// Only fall back to global if the task was definitively not found.
 	// Ambiguous matches and other errors should be returned directly.
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "ambiguous") {
+	if !errors.Is(err, ErrTaskNotFound) {
 		return nil, "", err
 	}
 
@@ -157,20 +165,23 @@ func appendProgressNote(existing, newNote string) string {
 	return newNote
 }
 
-// shortenWorkspace shortens a workspace path for display by replacing the home directory with ~.
-func shortenWorkspace(workspace string) string {
+// newWorkspaceShortener returns a function that shortens workspace paths by
+// replacing the home directory with ~. The home directory is resolved once.
+func newWorkspaceShortener() func(string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return workspace
-	}
-	if workspace == home {
-		return "~"
+		return func(workspace string) string { return workspace }
 	}
 	prefix := home + string(os.PathSeparator)
-	if strings.HasPrefix(workspace, prefix) {
-		return "~" + string(os.PathSeparator) + workspace[len(prefix):]
+	return func(workspace string) string {
+		if workspace == home {
+			return "~"
+		}
+		if strings.HasPrefix(workspace, prefix) {
+			return "~" + string(os.PathSeparator) + workspace[len(prefix):]
+		}
+		return workspace
 	}
-	return workspace
 }
 
 // resolveWorkspace returns the given workspace if non-empty, or the current working directory.

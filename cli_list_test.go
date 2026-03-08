@@ -49,7 +49,7 @@ func TestStaticListOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	printTaskTable(w, tasks, false, false, db, ws)
+	printTaskTable(w, tasks, false, false, db)
 	w.Close()
 
 	var buf bytes.Buffer
@@ -89,17 +89,12 @@ func TestStaticListOutput(t *testing.T) {
 }
 
 func TestStaticListAllWorkspaces(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := OpenDB(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db, _ := testListDB(t)
 
 	ws1 := "/workspace/alpha"
 	ws2 := "/workspace/beta"
 
-	_, err = db.CreateTask(ws1, "Alpha task", "", StatusTodo, PriorityHigh, "", "", nil, nil)
+	_, err := db.CreateTask(ws1, "Alpha task", "", StatusTodo, PriorityHigh, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +126,7 @@ func TestStaticListAllWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	printTaskTable(w, tasks, false, true, db, "")
+	printTaskTable(w, tasks, false, true, db)
 	w.Close()
 
 	var buf bytes.Buffer
@@ -177,7 +172,7 @@ func TestStaticListWithSubtasks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	printTaskTable(w, tasks, true, false, db, ws)
+	printTaskTable(w, tasks, true, false, db)
 	w.Close()
 
 	var buf bytes.Buffer
