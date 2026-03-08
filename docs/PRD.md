@@ -311,7 +311,7 @@ Used by Claude Code hook scripts. Not intended for direct human use.
 
 Interactive CLI for developers to monitor agent work and manage tasks. Built with [bubbletea](https://github.com/charmbracelet/bubbletea) and [bubbles](https://github.com/charmbracelet/bubbles). Uses [lipgloss](https://github.com/charmbracelet/lipgloss) for styling with status-based coloring (green=done, yellow=in_progress, red=blocked, dim=todo).
 
-**ID display:** Task IDs are full UUIDs (36 chars). In table output, IDs are shown as the last segment (final 12 hex characters after the last `-`) for readability and easy copying. Full IDs are available in interactive mode and `watch` detail views. Commands like `watch` and `close` accept either the short suffix or full UUID, using suffix matching to resolve.
+**ID display:** Task IDs are full UUIDs (36 chars). In table output, IDs are shown as the last segment (final 12 hex characters after the last `-`) for readability and easy copying. Full IDs are available in `watch` detail views. Commands like `watch` and `close` accept either the short suffix or full UUID, using suffix matching to resolve.
 
 **Code organization:** CLI/TUI code lives in separate files in the root package (`cli_list.go`, `cli_watch.go`, `cli_close.go`). TUI model logic is tested; view rendering is not.
 
@@ -329,23 +329,28 @@ Static table of open tasks in the current workspace. Columns: ID (short prefix),
 
 | Flag | Description |
 |------|-------------|
-| `-i` | Interactive TUI mode |
-| `-a`, `--all` | Show tasks across all workspaces. Adds a Workspace column. Mutually exclusive with `--workspace`. Not supported in interactive mode (`-i`) |
+| `-a`, `--all` | Show tasks across all workspaces. Adds a Workspace column. Mutually exclusive with `--workspace` |
 | `--subtasks` | Show subtasks nested under parent tasks |
 | `--status <status>` | Filter by status |
 | `--assignee <name>` | Filter by assignee |
 | `--include-done` | Include completed tasks |
 | `--workspace <path>` | Override workspace (default: cwd) |
 
-**Interactive mode (`-i`):**
+#### `tasks-mcp watch [id]`
 
-- Opens a full-screen TUI showing all open top-level tasks
-- Navigate with arrow keys / j/k
+Interactive TUI for monitoring tasks. Works in two modes depending on whether an ID is provided:
+
+**List mode** (no arguments: `tasks-mcp watch`):
+
+Opens a full-screen interactive task list showing all open top-level tasks in the current workspace. Polls for updates at the configured interval.
+
+- Navigate with arrow keys or j/k
 - Press Enter to expand a task and see subtasks, progress notes, and details
 - Press `c` to close (mark done) the selected task — prompts for confirmation before closing
-- Press `q` or Esc to quit
+- Press Esc or Backspace to go back from detail view to the list
+- Press `q` to quit
 
-#### `tasks-mcp watch <id>`
+**Task mode** (with ID: `tasks-mcp watch <id>`):
 
 Live-updating TUI that displays a task and its full subtask tree. Polls the database for changes and re-renders automatically. Exits when all tasks in the tree are done.
 
@@ -363,7 +368,7 @@ Live-updating TUI that displays a task and its full subtask tree. Polls the data
 | `--no-exit` | Stay running after all tasks are done (continue watching for changes) |
 | `--workspace <path>` | Override workspace (default: cwd) |
 
-**Behavior:**
+**Task mode behavior:**
 
 - Task ID is resolved across all workspaces, not just the current one. If the task belongs to a different workspace, the TUI displays a warning: `⚠ Task is from workspace: <path>`
 - If the task has no subtasks, shows the single task and waits for it to complete (subtasks may be added later by agents)
@@ -407,8 +412,7 @@ Marks a task as done from the command line.
 These are explicitly out of scope for the current version but may be considered later:
 
 - **Task templates** — Pre-defined task structures for common workflows
-- **Consolidate `list -i` and `watch`** — Both serve the same purpose of interactively viewing tasks; merge them into `watch` as the single interactive TUI entry point
-- **Close subtasks from TUI** — Allow closing individual subtasks from within `list -i` / `watch`, not just top-level tasks
+- **Close subtasks from TUI** — Allow closing individual subtasks from within `watch`, not just top-level tasks
 - **Task archival** — Move old completed tasks out of the active database
 - **HTTP transport** — For remote or shared agent setups
 - **Notifications** — Proactive reminders for blocked or stale tasks
