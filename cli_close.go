@@ -45,6 +45,15 @@ func closeCmd() *cobra.Command {
 				return err
 			}
 
+			updates := map[string]string{
+				"status": string(StatusDone),
+			}
+
+			if _, err := db.UpdateTask(workspace, task.ID, updates, nil, nil, nil, nil); err != nil {
+				return err
+			}
+
+			// Add notes after successful status update to avoid misleading notes on failure.
 			if _, err := db.AddNote(task.ID, "Closed manually via CLI"); err != nil {
 				return err
 			}
@@ -53,14 +62,6 @@ func closeCmd() *cobra.Command {
 				if _, err := db.AddNote(task.ID, note); err != nil {
 					return err
 				}
-			}
-
-			updates := map[string]string{
-				"status": string(StatusDone),
-			}
-
-			if _, err := db.UpdateTask(workspace, task.ID, updates, nil, nil, nil, nil); err != nil {
-				return err
 			}
 
 			fmt.Printf("Closed task: %s (%s)\n", task.Title, ShortID(task.ID))

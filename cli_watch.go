@@ -340,15 +340,16 @@ func (m watchModel) doCloseTask(id string, successMsg tea.Msg) tea.Cmd {
 			return errMsg{err: err}
 		}
 
-		if _, err := m.db.AddNote(id, "Closed manually via CLI"); err != nil {
-			return errMsg{err: err}
-		}
-
 		updates := map[string]string{
 			"status": string(StatusDone),
 		}
 
 		if _, err := m.db.UpdateTask(m.workspace, id, updates, nil, nil, nil, nil); err != nil {
+			return errMsg{err: err}
+		}
+
+		// Add note after successful status update to avoid misleading notes on failure.
+		if _, err := m.db.AddNote(id, "Closed manually via CLI"); err != nil {
 			return errMsg{err: err}
 		}
 		return successMsg

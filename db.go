@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -469,9 +470,13 @@ func (d *DB) enrichTaskMetadata(t *Task) error {
 // TaskExists checks if a task exists in a workspace.
 // Returns ErrTaskNotFound (wrapped) if the task does not exist.
 func (d *DB) TaskExists(workspace, id string) error {
-	var exists bool
-	if err := d.db.QueryRow(`SELECT 1 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace).Scan(&exists); err != nil {
-		return fmt.Errorf("task %s not found in workspace: %w", id, ErrTaskNotFound)
+	var n int
+	err := d.db.QueryRow(`SELECT 1 FROM tasks WHERE id = ? AND workspace = ?`, id, workspace).Scan(&n)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task %s: %w", id, ErrTaskNotFound)
+		}
+		return fmt.Errorf("check task exists: %w", err)
 	}
 	return nil
 }
@@ -504,7 +509,7 @@ func (d *DB) AddNote(taskID, content string) (*TaskNote, error) {
 		return nil, fmt.Errorf("update task timestamp rows affected: %w", err)
 	}
 	if n == 0 {
-		return nil, fmt.Errorf("add note: task not found")
+		return nil, fmt.Errorf("add note: %w", ErrTaskNotFound)
 	}
 
 	if err := tx.Commit(); err != nil {
