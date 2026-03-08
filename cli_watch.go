@@ -30,6 +30,7 @@ const (
 	viewList watchView = iota
 	viewDetail
 	viewConfirmClose
+	viewConfirmCloseSubtask
 )
 
 // taskDetailMsg is sent when a single task's details have been loaded.
@@ -39,6 +40,9 @@ type taskDetailMsg struct {
 
 // taskClosedMsg is sent when a task has been successfully closed.
 type taskClosedMsg struct{}
+
+// subtaskClosedMsg is sent when a subtask has been successfully closed.
+type subtaskClosedMsg struct{}
 
 // errMsg is sent when an error occurs during an async operation.
 type errMsg struct {
@@ -62,14 +66,15 @@ type watchModel struct {
 	allDone bool
 
 	// List mode fields
-	listMode bool
-	tasks    []Task
-	cursor   int
-	view     watchView
-	detail   *Task
-	quitting bool
-	width    int
-	height   int
+	listMode      bool
+	tasks         []Task
+	cursor        int
+	subtaskCursor int
+	view          watchView
+	detail        *Task
+	quitting      bool
+	width         int
+	height        int
 
 	err error
 }
@@ -161,6 +166,10 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskDetailMsg:
 		m.detail = msg.task
 		m.view = viewDetail
+		// Reset subtask cursor, but clamp if refreshing after a subtask close.
+		if m.subtaskCursor >= len(msg.task.Subtasks) {
+			m.subtaskCursor = max(0, len(msg.task.Subtasks)-1)
+		}
 		return m, nil
 
 	case taskClosedMsg:
@@ -168,6 +177,13 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail = nil
 		// Refresh immediately so the closed task disappears.
 		return m, tickCmd(0)
+
+	case subtaskClosedMsg:
+		// Stay in detail view, refresh the detail to show updated subtask status.
+		if m.detail != nil {
+			return m, m.loadDetail(m.detail.ID)
+		}
+		return m, nil
 
 	case errMsg:
 		m.err = msg.err
@@ -184,6 +200,8 @@ func (m watchModel) updateListMode(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDetailView(msg)
 		case viewConfirmClose:
 			return m.updateConfirmCloseView(msg)
+		case viewConfirmCloseSubtask:
+			return m.updateConfirmCloseSubtaskView(msg)
 		}
 	}
 
@@ -210,6 +228,7 @@ func (m watchModel) updateListView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(m.tasks) > 0 {
+			m.subtaskCursor = 0
 			return m, m.loadDetail(m.tasks[m.cursor].ID)
 		}
 	case "c":
@@ -233,6 +252,19 @@ func (m watchModel) updateDetailView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "backspace":
 		m.view = viewList
 		m.detail = nil
+		m.subtaskCursor = 0
+	case "up", "k":
+		if m.detail != nil && m.subtaskCursor > 0 {
+			m.subtaskCursor--
+		}
+	case "down", "j":
+		if m.detail != nil && m.subtaskCursor < len(m.detail.Subtasks)-1 {
+			m.subtaskCursor++
+		}
+	case "c":
+		if m.detail != nil && len(m.detail.Subtasks) > 0 {
+			m.view = viewConfirmCloseSubtask
+		}
 	}
 	return m, nil
 }
@@ -256,6 +288,57 @@ func (m watchModel) updateConfirmCloseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.view = viewList
 	}
 	return m, nil
+}
+
+func (m watchModel) updateConfirmCloseSubtaskView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		m.quitting = true
+		return m, tea.Quit
+	}
+	switch msg.String() {
+	case "y":
+		if m.detail == nil || len(m.detail.Subtasks) == 0 ||
+			m.subtaskCursor < 0 || m.subtaskCursor >= len(m.detail.Subtasks) {
+			m.view = viewDetail
+			return m, nil
+		}
+		st := m.detail.Subtasks[m.subtaskCursor]
+		m.view = viewDetail
+		return m, m.closeSubtask(st.ID)
+	case "n", "esc":
+		m.view = viewDetail
+	}
+	return m, nil
+}
+
+func (m watchModel) closeSubtask(id string) tea.Cmd {
+	return func() tea.Msg {
+		task, err := m.db.GetTask(m.workspace, id)
+		if err != nil {
+			return errMsg{err: err}
+		}
+
+		if err := validateDependencies(m.db, m.workspace, id, "done"); err != nil {
+			return errMsg{err: err}
+		}
+
+		if err := validateSubtasksDone(m.db, m.workspace, id); err != nil {
+			return errMsg{err: err}
+		}
+
+		notes := appendProgressNote(task.ProgressNotes, formatProgressNote("Closed manually via CLI"))
+
+		updates := map[string]string{
+			"status":         string(StatusDone),
+			"progress_notes": notes,
+		}
+
+		if _, err := m.db.UpdateTask(m.workspace, id, updates, nil, nil, nil, nil); err != nil {
+			return errMsg{err: err}
+		}
+		return subtaskClosedMsg{}
+	}
 }
 
 func (m watchModel) loadDetail(id string) tea.Cmd {
@@ -360,6 +443,8 @@ func (m watchModel) viewListMode() string {
 		return m.renderDetail()
 	case viewConfirmClose:
 		return m.renderConfirmClose()
+	case viewConfirmCloseSubtask:
+		return m.renderConfirmCloseSubtask()
 	default:
 		return m.renderList()
 	}
@@ -427,12 +512,16 @@ func (m watchModel) renderDetail() string {
 
 	if len(t.Subtasks) > 0 {
 		fmt.Fprintf(&b, "\n%s\n", labelStyle.Render("Subtasks:"))
-		for _, st := range t.Subtasks {
-			fmt.Fprintf(&b, "  %s  %s  %s\n",
+		for i, st := range t.Subtasks {
+			line := fmt.Sprintf("  %s  %s  %s",
 				StyledStatus(st.Status),
 				st.Title,
 				ShortID(st.ID),
 			)
+			if i == m.subtaskCursor {
+				line = selectedBg.Render(line)
+			}
+			b.WriteString(line + "\n")
 		}
 	}
 
@@ -440,7 +529,12 @@ func (m watchModel) renderDetail() string {
 		fmt.Fprintf(&b, "\n%s\n%s\n", labelStyle.Render("Progress Notes:"), t.ProgressNotes)
 	}
 
-	b.WriteString("\nesc/backspace: back  q: quit")
+	help := "\nesc/backspace: back"
+	if len(t.Subtasks) > 0 {
+		help += "  j/k: navigate subtasks  c: close subtask"
+	}
+	help += "  q: quit"
+	b.WriteString(help)
 
 	return b.String()
 }
@@ -453,6 +547,23 @@ func (m watchModel) renderConfirmClose() string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Close task: %s? (y/n)", task.Title)
+
+	if m.err != nil {
+		b.WriteString("\n" + errorStyle.Render("Error: "+m.err.Error()))
+	}
+
+	return b.String()
+}
+
+func (m watchModel) renderConfirmCloseSubtask() string {
+	if m.detail == nil || len(m.detail.Subtasks) == 0 ||
+		m.subtaskCursor < 0 || m.subtaskCursor >= len(m.detail.Subtasks) {
+		return ""
+	}
+	st := m.detail.Subtasks[m.subtaskCursor]
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Close subtask: %s? (y/n)", st.Title)
 
 	if m.err != nil {
 		b.WriteString("\n" + errorStyle.Render("Error: "+m.err.Error()))
@@ -516,9 +627,15 @@ view details, and close tasks. With a task ID argument, shows that task
 and its full subtask tree.
 
 List mode controls:
-  j/k or arrows: navigate
+  j/k or arrows: navigate tasks
   enter: view task details
   c: close selected task
+  q: quit
+
+Detail view controls:
+  j/k or arrows: navigate subtasks
+  c: close selected subtask
+  esc/backspace: back to list
   q: quit
 
 Single-task mode:

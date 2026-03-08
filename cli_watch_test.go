@@ -731,6 +731,251 @@ func TestListModeEmptyView(t *testing.T) {
 	}
 }
 
+func TestDetailModeSubtaskNavigation(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Child A", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Child B", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks and enter detail.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = m.Update(msg)
+		m = updated.(watchModel)
+	}
+
+	if m.view != viewDetail {
+		t.Fatalf("expected viewDetail, got %d", m.view)
+	}
+	if m.subtaskCursor != 0 {
+		t.Errorf("expected subtaskCursor 0, got %d", m.subtaskCursor)
+	}
+
+	// Navigate down.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(watchModel)
+	if m.subtaskCursor != 1 {
+		t.Errorf("expected subtaskCursor 1 after j, got %d", m.subtaskCursor)
+	}
+
+	// Navigate past end — should stay at 1.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(watchModel)
+	if m.subtaskCursor != 1 {
+		t.Errorf("expected subtaskCursor 1 at end, got %d", m.subtaskCursor)
+	}
+
+	// Navigate up.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(watchModel)
+	if m.subtaskCursor != 0 {
+		t.Errorf("expected subtaskCursor 0 after k, got %d", m.subtaskCursor)
+	}
+
+	// Navigate past start — should stay at 0.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	m = updated.(watchModel)
+	if m.subtaskCursor != 0 {
+		t.Errorf("expected subtaskCursor 0 at start, got %d", m.subtaskCursor)
+	}
+}
+
+func TestDetailModeCloseSubtask(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := db.CreateTask(ws, "Child to close", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks and enter detail.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = m.Update(msg)
+		m = updated.(watchModel)
+	}
+
+	// Press c to close subtask.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+	if m.view != viewConfirmCloseSubtask {
+		t.Errorf("expected viewConfirmCloseSubtask, got %d", m.view)
+	}
+
+	// Verify confirm text.
+	view := m.View()
+	if !strings.Contains(view, "Close subtask") {
+		t.Error("expected 'Close subtask' in confirm view")
+	}
+
+	// Confirm with y.
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(watchModel)
+
+	// Execute close command.
+	if cmd != nil {
+		closeMsg := cmd()
+		updated, _ = m.Update(closeMsg)
+		m = updated.(watchModel)
+	}
+
+	// Verify subtask was closed.
+	closed, err := db.GetTask(ws, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.Status != StatusDone {
+		t.Errorf("expected subtask status done, got %s", closed.Status)
+	}
+	if !strings.Contains(closed.ProgressNotes, "Closed manually via CLI") {
+		t.Error("expected progress note about CLI closure")
+	}
+
+	// Should still be in detail view (not list).
+	if m.view != viewDetail {
+		t.Errorf("expected viewDetail after subtask close, got %d", m.view)
+	}
+}
+
+func TestDetailModeCancelCloseSubtask(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Child", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks and enter detail.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = m.Update(msg)
+		m = updated.(watchModel)
+	}
+
+	// Press c then n to cancel.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+	if m.view != viewConfirmCloseSubtask {
+		t.Errorf("expected viewConfirmCloseSubtask, got %d", m.view)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = updated.(watchModel)
+	if m.view != viewDetail {
+		t.Errorf("expected viewDetail after cancel, got %d", m.view)
+	}
+}
+
+func TestDetailModeNoSubtasksNoCloseOption(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	_, err := db.CreateTask(ws, "No children", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks and enter detail.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = m.Update(msg)
+		m = updated.(watchModel)
+	}
+
+	// Press c — should NOT enter confirm close subtask (no subtasks).
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(watchModel)
+	if m.view != viewDetail {
+		t.Errorf("expected viewDetail when no subtasks, got %d", m.view)
+	}
+}
+
+func TestDetailModeSubtaskCursorReset(t *testing.T) {
+	db, ws := testWatchListDB(t)
+
+	parent, err := db.CreateTask(ws, "Parent", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Child A", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.CreateTask(ws, "Child B", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newListModeModel(db, ws)
+
+	// Load tasks and enter detail.
+	updated, _ := m.Update(tickMsg{})
+	m = updated.(watchModel)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(watchModel)
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = m.Update(msg)
+		m = updated.(watchModel)
+	}
+
+	// Move cursor to second subtask.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(watchModel)
+	if m.subtaskCursor != 1 {
+		t.Fatalf("expected subtaskCursor 1, got %d", m.subtaskCursor)
+	}
+
+	// Go back to list.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(watchModel)
+
+	if m.subtaskCursor != 0 {
+		t.Errorf("expected subtaskCursor reset to 0 on back, got %d", m.subtaskCursor)
+	}
+}
+
 func TestListModeQuit(t *testing.T) {
 	db, ws := testWatchListDB(t)
 
