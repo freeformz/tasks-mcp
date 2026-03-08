@@ -296,6 +296,135 @@ func TestHandleTaskAddNoteMissingFields(t *testing.T) {
 	}
 }
 
+func TestHandleTaskAddNoteInvalidMaxNotes(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	createHandler := handleTaskCreate(db, ws)
+	addNoteHandler := handleTaskAddNote(db, ws)
+
+	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Max Notes Test"}))
+	var created Task
+	json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created)
+
+	tests := []struct {
+		name      string
+		maxNotes  float64
+		wantError bool
+	}{
+		{"negative", -1, true},
+		{"fractional", 2.5, true},
+		{"too large", 10001, true},
+		{"valid zero", 0, false},
+		{"valid positive", 3, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := addNoteHandler(t.Context(), makeRequest(map[string]any{
+				"id":        created.ID,
+				"content":   "note for " + tt.name,
+				"max_notes": tt.maxNotes,
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantError && !result.IsError {
+				t.Errorf("expected error for max_notes=%v", tt.maxNotes)
+			}
+			if !tt.wantError && result.IsError {
+				t.Errorf("unexpected error for max_notes=%v: %v", tt.maxNotes, result.Content)
+			}
+		})
+	}
+}
+
+func TestHandleTaskAddNoteTaskNotFound(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	handler := handleTaskAddNote(db, ws)
+
+	result, err := handler(t.Context(), makeRequest(map[string]any{
+		"id":      "nonexistent-id",
+		"content": "should fail",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for nonexistent task")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "not found") {
+		t.Errorf("expected 'not found' in error, got %q", text)
+	}
+}
+
+func TestHandleTaskAddNoteCustomMaxNotes(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	createHandler := handleTaskCreate(db, ws)
+	addNoteHandler := handleTaskAddNote(db, ws)
+
+	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Custom Max"}))
+	var created Task
+	json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created)
+
+	// Add 3 notes.
+	for i := 1; i <= 3; i++ {
+		addNoteHandler(t.Context(), makeRequest(map[string]any{
+			"id":      created.ID,
+			"content": "note",
+		}))
+	}
+
+	// Request with max_notes=2 — should only return 2 notes.
+	result, err := addNoteHandler(t.Context(), makeRequest(map[string]any{
+		"id":        created.ID,
+		"content":   "note 4",
+		"max_notes": float64(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %v", result.Content)
+	}
+
+	var task Task
+	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &task)
+	if len(task.Notes) != 2 {
+		t.Errorf("got %d notes, want 2 (max_notes=2)", len(task.Notes))
+	}
+	if task.NoteCount != 4 {
+		t.Errorf("note_count = %d, want 4", task.NoteCount)
+	}
+}
+
+func TestHandleTaskListIncludeDone(t *testing.T) {
+	db, ws := newTestToolEnv(t)
+	createHandler := handleTaskCreate(db, ws)
+	updateHandler := handleTaskUpdate(db, ws)
+	listHandler := handleTaskList(db, ws)
+
+	// Create a task and mark it done.
+	createResult, _ := createHandler(t.Context(), makeRequest(map[string]any{"title": "Done Task"}))
+	var created Task
+	json.Unmarshal([]byte(createResult.Content[0].(mcp.TextContent).Text), &created)
+	updateHandler(t.Context(), makeRequest(map[string]any{"id": created.ID, "status": "done"}))
+
+	// Without include_done.
+	result, _ := listHandler(t.Context(), makeRequest(map[string]any{}))
+	var tasks []Task
+	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks)
+	if len(tasks) != 0 {
+		t.Errorf("got %d tasks without include_done, want 0", len(tasks))
+	}
+
+	// With include_done.
+	result, _ = listHandler(t.Context(), makeRequest(map[string]any{"include_done": true}))
+	json.Unmarshal([]byte(result.Content[0].(mcp.TextContent).Text), &tasks)
+	if len(tasks) != 1 {
+		t.Errorf("got %d tasks with include_done, want 1", len(tasks))
+	}
+}
+
 func TestHandleTaskUpdateMissingID(t *testing.T) {
 	db, ws := newTestToolEnv(t)
 	handler := handleTaskUpdate(db, ws)
