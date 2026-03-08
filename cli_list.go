@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -25,8 +24,8 @@ func listCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List tasks in current workspace",
-		Long:  "Static table of open tasks. Use -i for interactive TUI mode with navigation, task details, and closing.",
+		Short: "List tasks (current workspace or all with -a)",
+		Long:  "Static table of open tasks. Use -i for interactive TUI mode with navigation, task details, and closing. Use -a to list across all workspaces.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if allWorkspaces && interactive {
 				return fmt.Errorf("--all is not supported in interactive mode (-i)")
@@ -65,8 +64,7 @@ func listCmd() *cobra.Command {
 				return nil
 			}
 
-			printTaskTable(os.Stdout, tasks, showSubtasks, allWorkspaces, db)
-			return nil
+			return printTaskTable(os.Stdout, tasks, showSubtasks, allWorkspaces, db)
 		},
 	}
 
@@ -83,7 +81,7 @@ func listCmd() *cobra.Command {
 }
 
 // printTaskTable writes a formatted task table to the given writer.
-func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool, db *DB) {
+func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool, db *DB) error {
 	var shorten func(string) string
 	if showWorkspace {
 		shorten = newWorkspaceShortener()
@@ -102,7 +100,7 @@ func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool
 			subtaskFilter := ListFilter{ParentID: t.ID, IncludeDone: true}
 			subtasks, err := db.ListTasks(t.Workspace, subtaskFilter)
 			if err != nil {
-				log.Fatal(err)
+				return fmt.Errorf("list subtasks: %w", err)
 			}
 			for _, st := range subtasks {
 				printTaskRow(w, st, "  ", shorten)
@@ -111,6 +109,7 @@ func printTaskTable(out *os.File, tasks []Task, showSubtasks, showWorkspace bool
 	}
 
 	w.Flush()
+	return nil
 }
 
 func printTaskRow(w *tabwriter.Writer, t Task, prefix string, shorten func(string) string) {

@@ -49,7 +49,9 @@ func TestStaticListOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	printTaskTable(w, tasks, false, false, db)
+	if err := printTaskTable(w, tasks, false, false, db); err != nil {
+		t.Fatal(err)
+	}
 	w.Close()
 
 	var buf bytes.Buffer
@@ -126,7 +128,9 @@ func TestStaticListAllWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	printTaskTable(w, tasks, false, true, db)
+	if err := printTaskTable(w, tasks, false, true, db); err != nil {
+		t.Fatal(err)
+	}
 	w.Close()
 
 	var buf bytes.Buffer
@@ -172,7 +176,9 @@ func TestStaticListWithSubtasks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	printTaskTable(w, tasks, true, false, db)
+	if err := printTaskTable(w, tasks, true, false, db); err != nil {
+		t.Fatal(err)
+	}
 	w.Close()
 
 	var buf bytes.Buffer

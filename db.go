@@ -188,11 +188,11 @@ func (d *DB) FindTaskBySuffixGlobal(suffix string) (*Task, error) {
 	case 1:
 		return d.GetTaskGlobal(matches[0].ID)
 	default:
-		var ids []string
+		var descs []string
 		for _, m := range matches {
-			ids = append(ids, m.ID)
+			descs = append(descs, fmt.Sprintf("%s (%s)", ShortID(m.ID), m.Workspace))
 		}
-		return nil, fmt.Errorf("ambiguous suffix %q matches %d tasks: %s", suffix, len(matches), strings.Join(ids, ", "))
+		return nil, fmt.Errorf("ambiguous suffix %q matches %d tasks: %s", suffix, len(matches), strings.Join(descs, ", "))
 	}
 }
 

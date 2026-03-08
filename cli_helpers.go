@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -36,10 +37,7 @@ func ResolveTaskID(db *DB, workspace, input string) (*Task, error) {
 	if err == nil {
 		return task, nil
 	}
-	// Wrap not-found with sentinel; propagate ambiguous and other errors as-is.
-	if strings.Contains(err.Error(), "no task found") {
-		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, input)
-	}
+	// FindTaskBySuffix wraps ErrTaskNotFound for not-found; propagate as-is.
 	return nil, err
 }
 
@@ -60,16 +58,20 @@ func ResolveTaskIDGlobal(db *DB, workspace, input string) (*Task, string, error)
 		return nil, "", err
 	}
 
-	// Fall back to global lookup.
-	task, err = db.GetTaskGlobal(input)
-	if err == nil {
+	// Fall back to global lookup by exact ID.
+	task, globalErr := db.GetTaskGlobal(input)
+	if globalErr == nil {
 		warning := fmt.Sprintf("⚠ Task is from workspace: %s", task.Workspace)
 		return task, warning, nil
 	}
+	// Only continue to suffix search if exact lookup returned not-found.
+	if !errors.Is(globalErr, sql.ErrNoRows) {
+		return nil, "", globalErr
+	}
 
-	task, err = db.FindTaskBySuffixGlobal(input)
-	if err != nil {
-		return nil, "", fmt.Errorf("could not resolve task ID %q in any workspace: %w", input, err)
+	task, globalErr = db.FindTaskBySuffixGlobal(input)
+	if globalErr != nil {
+		return nil, "", fmt.Errorf("could not resolve task ID %q in any workspace: %w", input, globalErr)
 	}
 
 	warning := fmt.Sprintf("⚠ Task is from workspace: %s", task.Workspace)
@@ -102,7 +104,7 @@ func (d *DB) FindTaskBySuffix(workspace, suffix string) (*Task, error) {
 
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("no task found matching suffix %q", suffix)
+		return nil, fmt.Errorf("%w: no task matching suffix %q", ErrTaskNotFound, suffix)
 	case 1:
 		return d.GetTask(workspace, matches[0].ID)
 	default:
