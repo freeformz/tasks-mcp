@@ -1,8 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -907,6 +910,367 @@ func TestDeregisterNonexistentSession(t *testing.T) {
 	err := db.DeregisterPresence(testWorkspace, "nonexistent-session")
 	if err != nil {
 		t.Fatalf("deregister nonexistent session should not error: %v", err)
+	}
+}
+
+func TestTaskExists(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Exists", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.TaskExists(testWorkspace, task.ID); err != nil {
+		t.Errorf("expected task to exist, got: %v", err)
+	}
+}
+
+func TestTaskExists_NotFound(t *testing.T) {
+	db := testDB(t)
+
+	err := db.TaskExists(testWorkspace, "nonexistent-id")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected ErrTaskNotFound, got: %v", err)
+	}
+}
+
+func TestTaskExists_WrongWorkspace(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "WS Test", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = db.TaskExists("/other/workspace", task.ID)
+	if err == nil {
+		t.Fatal("expected error for wrong workspace")
+	}
+	if !errors.Is(err, ErrTaskNotFound) {
+		t.Errorf("expected ErrTaskNotFound, got: %v", err)
+	}
+}
+
+func TestAddNote(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Note Task", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	note, err := db.AddNote(task.ID, "test note content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note.Content != "test note content" {
+		t.Errorf("note content = %q, want %q", note.Content, "test note content")
+	}
+	if note.TaskID != task.ID {
+		t.Errorf("note task_id = %q, want %q", note.TaskID, task.ID)
+	}
+	if note.ID == "" {
+		t.Error("expected non-empty note ID")
+	}
+}
+
+func TestAddNote_NonexistentTask(t *testing.T) {
+	db := testDB(t)
+
+	_, err := db.AddNote("nonexistent-id", "should fail")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+	// AddNote fails with a FK constraint error (not ErrTaskNotFound) because
+	// the INSERT into task_notes triggers the foreign key check before the
+	// RowsAffected check on the UPDATE. The MCP handler uses TaskExists first.
+}
+
+func TestAddNote_UpdatesTimestamp(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Timestamp Task", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original, err := db.GetTask(testWorkspace, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Backdate the task's updated_at to guarantee AddNote advances it.
+	past := original.UpdatedAt.Add(-time.Second)
+	if _, err := db.db.Exec(`UPDATE tasks SET updated_at = ? WHERE id = ?`, past, task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.AddNote(task.ID, "should update timestamp"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := db.GetTask(testWorkspace, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !updated.UpdatedAt.After(past) {
+		t.Error("expected updated_at to advance after adding note")
+	}
+}
+
+func TestGetNotes(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Notes Task", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add 3 notes.
+	for i := 1; i <= 3; i++ {
+		if _, err := db.AddNote(task.ID, fmt.Sprintf("note %d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Get all notes.
+	notes, err := db.GetNotes(task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 3 {
+		t.Fatalf("got %d notes, want 3", len(notes))
+	}
+	// Should be newest first.
+	if notes[0].Content != "note 3" {
+		t.Errorf("first note = %q, want 'note 3'", notes[0].Content)
+	}
+
+	// Get limited notes.
+	notes, err = db.GetNotes(task.ID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("got %d notes, want 2", len(notes))
+	}
+	if notes[0].Content != "note 3" {
+		t.Errorf("first note = %q, want 'note 3'", notes[0].Content)
+	}
+	if notes[1].Content != "note 2" {
+		t.Errorf("second note = %q, want 'note 2'", notes[1].Content)
+	}
+}
+
+func TestGetNotes_NoNotes(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Empty Notes", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := db.GetNotes(task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("got %d notes, want 0", len(notes))
+	}
+}
+
+func TestGetNoteCount(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "Count Notes", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := db.GetNoteCount(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("got count %d, want 0", count)
+	}
+
+	for i := 0; i < 5; i++ {
+		if _, err := db.AddNote(task.ID, fmt.Sprintf("note %d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	count, err = db.GetNoteCount(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Errorf("got count %d, want 5", count)
+	}
+}
+
+func TestFindTaskBySuffix_Ambiguous(t *testing.T) {
+	db := testDB(t)
+
+	// Create 20 tasks and find a single-character suffix shared by at least 2.
+	// With 16 hex characters and 20 tasks, pigeonhole principle guarantees this.
+	var ids []string
+	for i := range 20 {
+		task, err := db.CreateTask(testWorkspace, fmt.Sprintf("Task %d", i), "", StatusTodo, PriorityMedium, "", "", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, task.ID)
+	}
+
+	counts := make(map[byte]int)
+	for _, id := range ids {
+		last := id[len(id)-1]
+		counts[last]++
+	}
+
+	var ambiguousSuffix string
+	for ch, n := range counts {
+		if n >= 2 {
+			ambiguousSuffix = string(ch)
+			break
+		}
+	}
+	if ambiguousSuffix == "" {
+		t.Fatal("expected at least one ambiguous last-character suffix")
+	}
+
+	_, err := db.FindTaskBySuffix(testWorkspace, ambiguousSuffix)
+	if err == nil {
+		t.Fatalf("expected ambiguous suffix error for %q, got nil", ambiguousSuffix)
+	}
+	if !strings.Contains(err.Error(), "ambiguous suffix") {
+		t.Fatalf("expected ambiguous suffix error for %q, got: %v", ambiguousSuffix, err)
+	}
+}
+
+func TestDeleteTask_WrongWorkspace(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask(testWorkspace, "WS Delete Test", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = db.DeleteTask("/other/workspace", task.ID)
+	if err == nil {
+		t.Fatal("expected error deleting from wrong workspace")
+	}
+}
+
+func TestFindTaskBySuffixGlobal_Ambiguous(t *testing.T) {
+	db := testDB(t)
+
+	// Create 20 tasks across workspaces and find a shared suffix deterministically.
+	var ids []string
+	for i := range 20 {
+		ws := fmt.Sprintf("/ws/%d", i%3)
+		task, err := db.CreateTask(ws, fmt.Sprintf("Global Task %d", i), "", StatusTodo, PriorityMedium, "", "", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, task.ID)
+	}
+
+	counts := make(map[byte]int)
+	for _, id := range ids {
+		last := id[len(id)-1]
+		counts[last]++
+	}
+
+	var ambiguousSuffix string
+	for ch, n := range counts {
+		if n >= 2 {
+			ambiguousSuffix = string(ch)
+			break
+		}
+	}
+	if ambiguousSuffix == "" {
+		t.Fatal("expected at least one ambiguous last-character suffix")
+	}
+
+	_, err := db.FindTaskBySuffixGlobal(ambiguousSuffix)
+	if err == nil {
+		t.Fatalf("expected ambiguous suffix error for %q, got nil", ambiguousSuffix)
+	}
+	if !strings.Contains(err.Error(), "ambiguous suffix") {
+		t.Fatalf("expected ambiguous suffix error for %q, got: %v", ambiguousSuffix, err)
+	}
+}
+
+func TestGetTaskGlobal(t *testing.T) {
+	db := testDB(t)
+
+	task, err := db.CreateTask("/some/workspace", "Global Get", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetTaskGlobal(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != task.ID {
+		t.Errorf("got ID %q, want %q", got.ID, task.ID)
+	}
+	if got.Workspace != "/some/workspace" {
+		t.Errorf("got workspace %q, want %q", got.Workspace, "/some/workspace")
+	}
+}
+
+func TestGetTaskGlobal_NotFound(t *testing.T) {
+	db := testDB(t)
+
+	_, err := db.GetTaskGlobal("nonexistent-id")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("expected sql.ErrNoRows, got: %v", err)
+	}
+}
+
+func TestSubtasksEnrichedWithNotes(t *testing.T) {
+	db := testDB(t)
+
+	parent, err := db.CreateTask(testWorkspace, "Parent", "", StatusTodo, PriorityMedium, "", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := db.CreateTask(testWorkspace, "Child", "", StatusTodo, PriorityMedium, "", parent.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a note to the child.
+	if _, err := db.AddNote(child.ID, "child note"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get parent — should have enriched subtask with notes.
+	got, err := db.GetTask(testWorkspace, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Subtasks) != 1 {
+		t.Fatalf("got %d subtasks, want 1", len(got.Subtasks))
+	}
+	if got.Subtasks[0].NoteCount != 1 {
+		t.Errorf("subtask note_count = %d, want 1", got.Subtasks[0].NoteCount)
+	}
+	if len(got.Subtasks[0].Notes) != 1 || got.Subtasks[0].Notes[0].Content != "child note" {
+		t.Errorf("expected subtask note 'child note', got %v", got.Subtasks[0].Notes)
 	}
 }
 
