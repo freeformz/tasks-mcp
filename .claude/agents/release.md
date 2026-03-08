@@ -45,6 +45,6 @@ Create and publish a new release for this project.
      - Fetch the release using `gh release view <version> --json url,assets --jq '{url: .url, assets: [.assets[] | {name: .name, size: .size}]}'`.
      - Report the **release URL** from the `url` field.
      - Report **all release artifacts with their sizes** from the `assets` array.
-     - For **Docker image status**, query the container package using `gh api /repos/{owner}/{repo}/packages/container/{image_name}/versions --jq '[.[] | {id: .id, tags: .metadata.container.tags, updated_at: .updated_at}]'` and confirm the new version tag was published.
+     - For **Docker image status**, query the container package using `gh api /users/{owner}/packages/container/{package_name}/versions --jq '[.[] | {id: .id, tags: .metadata.container.tags, updated_at: .updated_at}]'` (for `ghcr.io/{owner}/{repo}`, use `{repo}` as `{package_name}`) and confirm the new version tag was published.
 
 10. **On any error**: Report the error clearly and suggest remediation steps (e.g., delete the tag if the workflow failed and a retry is needed).
