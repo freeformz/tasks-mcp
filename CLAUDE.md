@@ -40,7 +40,7 @@ make release-snapshot   # local goreleaser build (no publish)
 - Create a feature branch, make changes, push, and open a PR
 - CI must pass before merging
 - Merge via GitHub PR (squash, merge, or rebase — all allowed)
-- Copilot automatically starts a review when new commits are pushed to a PR — no need to manually re-request
+- Copilot automatically starts a review when new commits are pushed to a PR — if no review appears ~2 minutes after push, manually request one with `gh pr edit <N> --add-reviewer "@copilot"`
 - Delete the feature branch after merging
 
 ## Releases
