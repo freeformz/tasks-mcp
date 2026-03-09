@@ -152,25 +152,27 @@ func TestHooksCheckActive_BlocksOnActiveTasks(t *testing.T) {
 	db := testDB(t)
 	workspace := "/test/check-active"
 
-	hasActive, err := db.HasActiveTasks(workspace)
+	// No active tasks initially.
+	tasks, err := db.ListTasks(workspace, ListFilter{Status: string(StatusInProgress)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasActive {
+	if len(tasks) != 0 {
 		t.Error("expected no active tasks")
 	}
 
+	// Create an in-progress task.
 	_, err = db.CreateTask(workspace, "Active task", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	hasActive, err = db.HasActiveTasks(workspace)
+	tasks, err = db.ListTasks(workspace, ListFilter{Status: string(StatusInProgress)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasActive {
-		t.Error("expected active tasks")
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 active task, got %d", len(tasks))
 	}
 }
 

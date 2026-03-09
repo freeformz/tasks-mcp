@@ -75,22 +75,7 @@ func mcpCmd() *cobra.Command {
 }
 
 func printTask(t Task) {
-	priority := ""
-	if t.Priority == PriorityHigh || t.Priority == PriorityCritical {
-		priority = fmt.Sprintf(" [%s]", strings.ToUpper(string(t.Priority)))
-	}
-	tags := ""
-	if len(t.Tags) > 0 {
-		tags = fmt.Sprintf(" (%s)", strings.Join(t.Tags, ", "))
-	}
-	assignee := ""
-	if t.Assignee != "" {
-		assignee = fmt.Sprintf(" @%s", t.Assignee)
-	}
-	fmt.Printf("- [%s] %s%s%s%s (id: %s)\n", t.Status, t.Title, priority, tags, assignee, t.ID)
-	for _, st := range t.Subtasks {
-		fmt.Printf("  - [%s] %s (id: %s)\n", st.Status, st.Title, st.ID)
-	}
+	printTaskTo(os.Stdout, t)
 }
 
 func formatActiveTasksReminder(tasks []Task) string {

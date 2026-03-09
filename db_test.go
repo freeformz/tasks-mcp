@@ -615,27 +615,6 @@ func TestCheckDependencies_NoDeps(t *testing.T) {
 	}
 }
 
-func TestHasActiveTasks(t *testing.T) {
-	db := testDB(t)
-
-	has, err := db.HasActiveTasks(testWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if has {
-		t.Error("expected no active tasks")
-	}
-
-	db.CreateTask(testWorkspace, "Active", "", StatusInProgress, PriorityMedium, "", "", nil, nil)
-
-	has, err = db.HasActiveTasks(testWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !has {
-		t.Error("expected active tasks")
-	}
-}
 
 func TestCheckCycle_SelfDependency(t *testing.T) {
 	db := testDB(t)
@@ -1271,20 +1250,5 @@ func TestSubtasksEnrichedWithNotes(t *testing.T) {
 	}
 	if len(got.Subtasks[0].Notes) != 1 || got.Subtasks[0].Notes[0].Content != "child note" {
 		t.Errorf("expected subtask note 'child note', got %v", got.Subtasks[0].Notes)
-	}
-}
-
-func TestPendingSummary(t *testing.T) {
-	db := testDB(t)
-
-	db.CreateTask(testWorkspace, "Todo", "", StatusTodo, PriorityMedium, "", "", nil, nil)
-	db.CreateTask(testWorkspace, "Done", "", StatusDone, PriorityMedium, "", "", nil, nil)
-
-	tasks, err := db.PendingSummary(testWorkspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tasks) != 1 {
-		t.Fatalf("got %d tasks, want 1", len(tasks))
 	}
 }
